@@ -31,18 +31,6 @@ import static io.netty.util.concurrent.AbstractEventExecutor.*;
  */
 public abstract class AbstractEventExecutorGroup implements EventExecutorGroup {
     @Override
-    public Future<?> shutdownGracefully() {
-        return shutdownGracefully(DEFAULT_SHUTDOWN_QUIET_PERIOD, DEFAULT_SHUTDOWN_TIMEOUT, TimeUnit.SECONDS);
-    }
-
-    @Override
-    @Deprecated
-    public List<Runnable> shutdownNow() {
-        shutdown();
-        return Collections.emptyList();
-    }
-
-    @Override
     public Future<?> submit(Runnable task) {
         return next().submit(task);
     }
@@ -75,6 +63,28 @@ public abstract class AbstractEventExecutorGroup implements EventExecutorGroup {
     @Override
     public ScheduledFuture<?> scheduleWithFixedDelay(Runnable command, long initialDelay, long delay, TimeUnit unit) {
         return next().scheduleWithFixedDelay(command, initialDelay, delay, unit);
+    }
+
+    @Override
+    public Future<?> shutdownGracefully() {
+        return shutdownGracefully(DEFAULT_SHUTDOWN_QUIET_PERIOD, DEFAULT_SHUTDOWN_TIMEOUT, TimeUnit.SECONDS);
+    }
+
+    /**
+     * @deprecated {@link #shutdownGracefully(long, long, TimeUnit)} or {@link #shutdownGracefully()} instead.
+     */
+    @Override
+    @Deprecated
+    public abstract void shutdown();
+
+    /**
+     * @deprecated {@link #shutdownGracefully(long, long, TimeUnit)} or {@link #shutdownGracefully()} instead.
+     */
+    @Override
+    @Deprecated
+    public List<Runnable> shutdownNow() {
+        shutdown();
+        return Collections.emptyList();
     }
 
     @Override
