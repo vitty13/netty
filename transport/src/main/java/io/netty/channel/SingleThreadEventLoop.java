@@ -311,7 +311,7 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
                     buffer.incrementPendingOutboundBytes(size);
                 }
             }
-            safeExecuteOutbound(WriteTask.newInstance(ctx, msg, size, flush, promise), promise);
+            safeExecuteOutbound(WriteTask.newInstance(ctx, msg, size, flush, promise), promise, msg);
         }
     }
 
@@ -395,6 +395,17 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
             execute(task);
         } catch (Throwable cause) {
             promise.setFailure(cause);
+        }
+    }
+    private void safeExecuteOutbound(Runnable task, ChannelPromise promise, Object msg) {
+        try {
+            execute(task);
+        } catch (Throwable cause) {
+            try {
+                promise.setFailure(cause);
+            } finally {
+                ReferenceCountUtil.release(msg);
+            }
         }
     }
 
