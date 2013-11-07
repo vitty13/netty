@@ -78,7 +78,7 @@ public class UptimeClientHandler extends SimpleChannelInboundHandler<Object> {
             @Override
             public void run() {
                 println("Reconnecting to: " + ctx.channel().remoteAddress());
-                client.configureBootstrap(new Bootstrap(), loop.parent()).connect();
+                client.configureBootstrap(new Bootstrap(), loop).connect();
             }
         }, UptimeClient.RECONNECT_DELAY, TimeUnit.SECONDS);
     }
