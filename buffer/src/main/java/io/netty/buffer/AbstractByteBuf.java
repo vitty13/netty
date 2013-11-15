@@ -41,6 +41,8 @@ public abstract class AbstractByteBuf extends ByteBuf {
     private int markedReaderIndex;
     private int markedWriterIndex;
 
+    private String test;
+    
     private int maxCapacity;
 
     private SwappedByteBuf swappedBuf;
