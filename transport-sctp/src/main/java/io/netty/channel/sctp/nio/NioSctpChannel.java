@@ -19,12 +19,17 @@ import com.sun.nio.sctp.Association;
 import com.sun.nio.sctp.MessageInfo;
 import com.sun.nio.sctp.NotificationHandler;
 import com.sun.nio.sctp.SctpChannel;
+
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelMetadata;
+import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.EventLoop;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.channel.nio.AbstractNioMessageChannel;
 import io.netty.channel.sctp.DefaultSctpChannelConfig;
@@ -78,15 +83,15 @@ public class NioSctpChannel extends AbstractNioMessageChannel implements io.nett
     /**
      * Create a new instance
      */
-    public NioSctpChannel() {
-        this(newSctpChannel());
+    public NioSctpChannel(EventLoop eventLoop) {
+        this(eventLoop, newSctpChannel());
     }
 
     /**
      * Create a new instance using {@link SctpChannel}
      */
-    public NioSctpChannel(SctpChannel sctpChannel) {
-        this(null, sctpChannel);
+    public NioSctpChannel(EventLoop eventLoop, SctpChannel sctpChannel) {
+        this(null, eventLoop, sctpChannel);
     }
 
     /**
@@ -96,8 +101,8 @@ public class NioSctpChannel extends AbstractNioMessageChannel implements io.nett
      *                      or {@code null}.
      * @param sctpChannel   the underlying {@link SctpChannel}
      */
-    public NioSctpChannel(Channel parent, SctpChannel sctpChannel) {
-        super(parent, sctpChannel, SelectionKey.OP_READ);
+    public NioSctpChannel(Channel parent, EventLoop eventLoop, SctpChannel sctpChannel) {
+        super(parent, eventLoop, sctpChannel, SelectionKey.OP_READ);
         try {
             sctpChannel.configureBlocking(false);
             config = new DefaultSctpChannelConfig(this, sctpChannel);
@@ -269,14 +274,14 @@ public class NioSctpChannel extends AbstractNioMessageChannel implements io.nett
         ByteBuf buffer = allocHandle.allocate(config().getAllocator());
         boolean free = true;
         try {
-            ByteBuffer data = buffer.nioBuffer(buffer.writerIndex(), buffer.writableBytes());
+            ByteBuffer data = buffer.internalNioBuffer(buffer.writerIndex(), buffer.writableBytes());
+            int pos = data.position();
+
             MessageInfo messageInfo = ch.receive(data, null, notificationHandler);
             if (messageInfo == null) {
                 return 0;
             }
-
-            data.flip();
-            buf.add(new SctpMessage(messageInfo, buffer.writerIndex(buffer.writerIndex() + data.remaining())));
+            buf.add(new SctpMessage(messageInfo, buffer.writerIndex(buffer.writerIndex() + (data.position() - pos))));
             free = false;
             return 1;
         } catch (Throwable cause) {
@@ -292,17 +297,27 @@ public class NioSctpChannel extends AbstractNioMessageChannel implements io.nett
     }
 
     @Override
-    protected int doWriteMessages(Object[] msgs, int msgLength, int startIndex, boolean lastSpin) throws Exception {
-        SctpMessage packet = (SctpMessage) msgs[startIndex];
+    protected boolean doWriteMessage(Object msg, ChannelOutboundBuffer in) throws Exception {
+        SctpMessage packet = (SctpMessage) msg;
         ByteBuf data = packet.content();
         int dataLen = data.readableBytes();
+        if (dataLen == 0) {
+            return true;
+        }
+
+        ByteBufAllocator alloc = alloc();
+        boolean needsCopy = data.nioBufferCount() != 1;
+        if (!needsCopy) {
+            if (!data.isDirect() && alloc.isDirectBufferPooled()) {
+                needsCopy = true;
+            }
+        }
         ByteBuffer nioData;
-        if (data.nioBufferCount() == 1) {
+        if (!needsCopy) {
             nioData = data.nioBuffer();
         } else {
-            nioData = ByteBuffer.allocate(dataLen);
-            data.getBytes(data.readerIndex(), nioData);
-            nioData.flip();
+            data = alloc.directBuffer(dataLen).writeBytes(data);
+            nioData = data.nioBuffer();
         }
 
         final MessageInfo mi = MessageInfo.createOutgoing(association(), null, packet.streamIdentifier());
@@ -311,32 +326,15 @@ public class NioSctpChannel extends AbstractNioMessageChannel implements io.nett
 
         final int writtenBytes = javaChannel().send(nioData, mi);
 
-        final SelectionKey key = selectionKey();
-        final int interestOps = key.interestOps();
-        if (writtenBytes <= 0 && dataLen > 0) {
-            // Did not write a packet.
-            // 1) If 'lastSpin' is false, the caller will call this method again real soon.
-            //    - Do not update OP_WRITE.
-            // 2) If 'lastSpin' is true, the caller will not retry.
-            //    - Set OP_WRITE so that the event loop calls flushForcibly() later.
-            if (lastSpin) {
-                if ((interestOps & SelectionKey.OP_WRITE) == 0) {
-                    key.interestOps(interestOps | SelectionKey.OP_WRITE);
-                }
-            }
-            return 0;
-        }
-
-        // packet was written free up buffer
-        packet.release();
-
-        if (msgLength == 1) {
-            // Wrote the outbound buffer completely - clear OP_WRITE.
-            if ((interestOps & SelectionKey.OP_WRITE) != 0) {
-                key.interestOps(interestOps & ~SelectionKey.OP_WRITE);
+        boolean done = writtenBytes > 0;
+        if (needsCopy) {
+            if (!done) {
+                in.current(new SctpMessage(mi, data));
+            } else {
+                in.current(data);
             }
         }
-        return 1;
+        return done;
     }
 
     @Override

@@ -15,30 +15,32 @@
  */
 package io.netty.handler.codec.spdy;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandler;
-import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
+import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpRequestDecoder;
 import io.netty.handler.codec.http.HttpResponseEncoder;
 import io.netty.handler.ssl.SslHandler;
 
 import javax.net.ssl.SSLEngine;
+import java.util.List;
 
 /**
  * {@link ChannelInboundHandler} which is responsible to setup the {@link ChannelPipeline} either for
  * HTTP or SPDY. This offers an easy way for users to support both at the same time while not care to
  * much about the low-level details.
  */
-public abstract class SpdyOrHttpChooser extends ChannelInboundHandlerAdapter {
+public abstract class SpdyOrHttpChooser extends ByteToMessageDecoder {
 
     // TODO: Replace with generic NPN handler
 
     public enum SelectedProtocol {
-        SPDY_2,
         SPDY_3,
+        SPDY_3_1,
         HTTP_1_1,
         HTTP_1_0,
         UNKNOWN
@@ -60,13 +62,11 @@ public abstract class SpdyOrHttpChooser extends ChannelInboundHandlerAdapter {
     protected abstract SelectedProtocol getProtocol(SSLEngine engine);
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
         if (initPipeline(ctx)) {
             // When we reached here we can remove this handler as its now clear what protocol we want to use
-            // from this point on.
+            // from this point on. This will also take care of forward all messages.
             ctx.pipeline().remove(this);
-
-            ctx.fireChannelRead(msg);
         }
     }
 
@@ -83,11 +83,11 @@ public abstract class SpdyOrHttpChooser extends ChannelInboundHandlerAdapter {
         case UNKNOWN:
             // Not done with choosing the protocol, so just return here for now,
             return false;
-        case SPDY_2:
-            addSpdyHandlers(ctx, 2);
-            break;
         case SPDY_3:
-            addSpdyHandlers(ctx, 3);
+            addSpdyHandlers(ctx, SpdyVersion.SPDY_3);
+            break;
+        case SPDY_3_1:
+            addSpdyHandlers(ctx, SpdyVersion.SPDY_3_1);
             break;
         case HTTP_1_0:
         case HTTP_1_1:
@@ -102,7 +102,7 @@ public abstract class SpdyOrHttpChooser extends ChannelInboundHandlerAdapter {
     /**
      * Add all {@link ChannelHandler}'s that are needed for SPDY with the given version.
      */
-    protected void addSpdyHandlers(ChannelHandlerContext ctx, int version) {
+    protected void addSpdyHandlers(ChannelHandlerContext ctx, SpdyVersion version) {
         ChannelPipeline pipeline = ctx.pipeline();
         pipeline.addLast("spdyDecoder", new SpdyFrameDecoder(version));
         pipeline.addLast("spdyEncoder", new SpdyFrameEncoder(version));
@@ -133,10 +133,10 @@ public abstract class SpdyOrHttpChooser extends ChannelInboundHandlerAdapter {
 
     /**
      * Create the {@link ChannelInboundHandler} that is responsible for handling the http responses
-     * when the {@link SelectedProtocol} was {@link SelectedProtocol#SPDY_2} or
-     * {@link SelectedProtocol#SPDY_3}.
+     * when the {@link SelectedProtocol} was {@link SelectedProtocol#SPDY_3} or
+     * {@link SelectedProtocol#SPDY_3_1}.
      *
-     * Bye default this getMethod will just delecate to {@link #createHttpRequestHandlerForHttp()}, but
+     * By default this getMethod will just delecate to {@link #createHttpRequestHandlerForHttp()}, but
      * sub-classes may override this to change the behaviour.
      */
     protected ChannelInboundHandler createHttpRequestHandlerForSpdy() {

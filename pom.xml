@@ -26,7 +26,7 @@
   <groupId>io.netty</groupId>
   <artifactId>netty-parent</artifactId>
   <packaging>pom</packaging>
-  <version>4.0.0.Final</version>
+  <version>5.0.0.Alpha1-SNAPSHOT</version>
 
   <name>Netty</name>
   <url>http://netty.io/</url>
@@ -53,7 +53,7 @@
     <url>https://github.com/netty/netty</url>
     <connection>scm:git:git://github.com/netty/netty.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/netty/netty.git</developerConnection>
-    <tag>netty-4.0.0.Final</tag>
+    <tag>HEAD</tag>
   </scm>
 
   <developers>
@@ -89,6 +89,7 @@
     <module>buffer</module>
     <module>codec</module>
     <module>codec-http</module>
+    <module>codec-memcache</module>
     <module>codec-socks</module>
     <module>transport</module>
     <module>transport-rxtx</module>
@@ -278,7 +279,7 @@
                   <version>[1.7.0,)</version>
                 </requireJavaVersion>
                 <requireMavenVersion>
-                  <version>[3.0.5,)</version>
+                  <version>[3.0.5,3.1)</version>
                 </requireMavenVersion>
               </rules>
             </configuration>
@@ -306,6 +307,8 @@
             <Xlint:deprecation />
           </compilerArguments>
           -->
+          <meminitial>256m</meminitial>
+          <maxmem>1024m</maxmem>
         </configuration>
       </plugin>
       <plugin>

@@ -17,7 +17,10 @@ package io.netty.channel.nio;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelConfig;
+import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPipeline;
+import io.netty.channel.EventLoop;
+import io.netty.channel.ServerChannel;
 
 import java.io.IOException;
 import java.nio.channels.SelectableChannel;
@@ -33,8 +36,9 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
     /**
      * @see {@link AbstractNioChannel#AbstractNioChannel(Channel, SelectableChannel, int)}
      */
-    protected AbstractNioMessageChannel(Channel parent, SelectableChannel ch, int readInterestOp) {
-        super(parent, ch, readInterestOp);
+    protected AbstractNioMessageChannel(Channel parent, EventLoop eventLoop, SelectableChannel ch,
+            int readInterestOp) {
+        super(parent, eventLoop, ch, readInterestOp);
     }
 
     @Override
@@ -46,16 +50,19 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
 
         private final List<Object> readBuf = new ArrayList<Object>();
 
+        private void removeReadOp() {
+            SelectionKey key = selectionKey();
+            int interestOps = key.interestOps();
+            if ((interestOps & readInterestOp) != 0) {
+                // only remove readInterestOp if needed
+                key.interestOps(interestOps & ~readInterestOp);
+            }
+        }
         @Override
         public void read() {
             assert eventLoop().inEventLoop();
-            final SelectionKey key = selectionKey();
             if (!config().isAutoRead()) {
-                int interestOps = key.interestOps();
-                if ((interestOps & readInterestOp) != 0) {
-                    // only remove readInterestOp if needed
-                    key.interestOps(interestOps & ~readInterestOp);
-                }
+                removeReadOp();
             }
 
             final ChannelConfig config = config();
@@ -83,7 +90,8 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                 exception = t;
             }
 
-            for (int i = 0; i < readBuf.size(); i ++) {
+            int size = readBuf.size();
+            for (int i = 0; i < size; i ++) {
                 pipeline.fireChannelRead(readBuf.get(i));
             }
             readBuf.clear();
@@ -91,7 +99,9 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
 
             if (exception != null) {
                 if (exception instanceof IOException) {
-                    closed = true;
+                    // ServerChannel should not be closed even on IOException because it can often continue
+                    // accepting incoming connections. (e.g. too many open files)
+                    closed = !(AbstractNioMessageChannel.this instanceof ServerChannel);
                 }
 
                 pipeline.fireExceptionCaught(exception);
@@ -106,15 +116,38 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
     }
 
     @Override
-    protected int doWrite(Object[] msgs, int msgsLength, int startIndex) throws Exception {
-        final int writeSpinCount = config().getWriteSpinCount() - 1;
-        for (int i = writeSpinCount; i >= 0; i --) {
-            int written = doWriteMessages(msgs, msgsLength, startIndex, i == 0);
-            if (written > 0) {
-                return written;
+    protected void doWrite(ChannelOutboundBuffer in) throws Exception {
+        final SelectionKey key = selectionKey();
+        final int interestOps = key.interestOps();
+
+        for (;;) {
+            Object msg = in.current();
+            if (msg == null) {
+                // Wrote all messages.
+                if ((interestOps & SelectionKey.OP_WRITE) != 0) {
+                    key.interestOps(interestOps & ~SelectionKey.OP_WRITE);
+                }
+                break;
+            }
+
+            boolean done = false;
+            for (int i = config().getWriteSpinCount() - 1; i >= 0; i --) {
+                if (doWriteMessage(msg, in)) {
+                    done = true;
+                    break;
+                }
+            }
+
+            if (done) {
+                in.remove();
+            } else {
+                // Did not write all messages.
+                if ((interestOps & SelectionKey.OP_WRITE) == 0) {
+                    key.interestOps(interestOps | SelectionKey.OP_WRITE);
+                }
+                break;
             }
         }
-        return 0;
     }
 
     /**
@@ -123,10 +156,10 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
     protected abstract int doReadMessages(List<Object> buf) throws Exception;
 
     /**
-     * Write messages to the underlying {@link java.nio.channels.Channel}.
-     * @param lastSpin      {@code true} if this is the last write try
-     * @return the number of written messages
+     * Write a message to the underlying {@link java.nio.channels.Channel}.
+     *
+     * @return {@code true} if and only if the message has been written
      */
-    protected abstract int doWriteMessages(
-            Object[] msgs, int msgLength, int startIndex, boolean lastSpin) throws Exception;
+    protected abstract boolean doWriteMessage(Object msg, ChannelOutboundBuffer in) throws Exception;
+
 }

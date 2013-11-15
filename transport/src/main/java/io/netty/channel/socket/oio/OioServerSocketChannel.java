@@ -17,7 +17,10 @@ package io.netty.channel.socket.oio;
 
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelMetadata;
-import io.netty.channel.oio.AbstractOioMessageChannel;
+import io.netty.channel.ChannelOutboundBuffer;
+import io.netty.channel.EventLoop;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.oio.AbstractOioMessageServerChannel;
 import io.netty.channel.socket.ServerSocketChannel;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -37,8 +40,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * This implementation use Old-Blocking-IO.
  */
-public class OioServerSocketChannel extends AbstractOioMessageChannel
-                                    implements ServerSocketChannel {
+public class OioServerSocketChannel extends AbstractOioMessageServerChannel implements ServerSocketChannel {
 
     private static final InternalLogger logger =
         InternalLoggerFactory.getInstance(OioServerSocketChannel.class);
@@ -60,8 +62,8 @@ public class OioServerSocketChannel extends AbstractOioMessageChannel
     /**
      * Create a new instance with an new {@link Socket}
      */
-    public OioServerSocketChannel() {
-        this(newServerSocket());
+    public OioServerSocketChannel(EventLoop eventLoop, EventLoopGroup childGroup) {
+        this(eventLoop, childGroup, newServerSocket());
     }
 
     /**
@@ -69,8 +71,8 @@ public class OioServerSocketChannel extends AbstractOioMessageChannel
      *
      * @param socket    the {@link ServerSocket} which is used by this instance
      */
-    public OioServerSocketChannel(ServerSocket socket) {
-        super(null);
+    public OioServerSocketChannel(EventLoop eventLoop, EventLoopGroup childGroup, ServerSocket socket) {
+        super(null, eventLoop, childGroup);
         if (socket == null) {
             throw new NullPointerException("socket");
         }
@@ -153,7 +155,7 @@ public class OioServerSocketChannel extends AbstractOioMessageChannel
             Socket s = socket.accept();
             try {
                 if (s != null) {
-                    buf.add(new OioSocketChannel(this, s));
+                    buf.add(new OioSocketChannel(this, childEventLoopGroup().next(), s));
                     return 1;
                 }
             } catch (Throwable t) {
@@ -173,7 +175,7 @@ public class OioServerSocketChannel extends AbstractOioMessageChannel
     }
 
     @Override
-    protected int doWrite(Object[] msgs, int msgsLength, int startIndex) throws Exception {
+    protected void doWrite(ChannelOutboundBuffer in) throws Exception {
         throw new UnsupportedOperationException();
     }
 

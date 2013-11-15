@@ -37,6 +37,7 @@ final class PlatformDependent0 {
 
     private static final long CLEANER_FIELD_OFFSET;
     private static final long ADDRESS_FIELD_OFFSET;
+    private static final Field CLEANER_FIELD;
 
     /**
      * {@code true} if and only if the platform supports unaligned access.
@@ -56,6 +57,7 @@ final class PlatformDependent0 {
         } catch (Throwable t) {
             cleanerField = null;
         }
+        CLEANER_FIELD = cleanerField;
         logger.debug("java.nio.ByteBuffer.cleaner: {}", cleanerField != null? "available" : "unavailable");
 
         Field addressField;
@@ -97,6 +99,9 @@ final class PlatformDependent0 {
                 } catch (NoSuchMethodError t) {
                     logger.debug("sun.misc.Unsafe.copyMemory: unavailable");
                     throw t;
+                } catch (NoSuchMethodException e) {
+                    logger.debug("sun.misc.Unsafe.copyMemory: unavailable");
+                    throw e;
                 }
             } catch (Throwable cause) {
                 unsafe = null;
@@ -142,10 +147,26 @@ final class PlatformDependent0 {
         UNSAFE.throwException(t);
     }
 
-    static void freeDirectBuffer(ByteBuffer buffer) {
+    static void freeDirectBufferUnsafe(ByteBuffer buffer) {
         Cleaner cleaner;
         try {
             cleaner = (Cleaner) getObject(buffer, CLEANER_FIELD_OFFSET);
+            if (cleaner == null) {
+                throw new IllegalArgumentException(
+                        "attempted to deallocate the buffer which was allocated via JNIEnv->NewDirectByteBuffer()");
+            }
+            cleaner.clean();
+        } catch (Throwable t) {
+            // Nothing we can do here.
+        }
+    }
+
+    static void freeDirectBuffer(ByteBuffer buffer) {
+        if (CLEANER_FIELD == null) {
+            return;
+        }
+        try {
+            Cleaner cleaner = (Cleaner) CLEANER_FIELD.get(buffer);
             if (cleaner == null) {
                 throw new IllegalArgumentException(
                         "attempted to deallocate the buffer which was allocated via JNIEnv->NewDirectByteBuffer()");

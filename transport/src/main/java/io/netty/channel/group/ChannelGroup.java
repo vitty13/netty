@@ -22,9 +22,9 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.EventLoop;
 import io.netty.channel.ServerChannel;
 import io.netty.util.CharsetUtil;
+import io.netty.util.concurrent.GlobalEventExecutor;
 
 import java.util.Set;
 
@@ -42,7 +42,8 @@ import java.util.Set;
  * If you need to broadcast a message to more than one {@link Channel}, you can
  * add the {@link Channel}s associated with the recipients and call {@link ChannelGroup#write(Object)}:
  * <pre>
- * <strong>{@link ChannelGroup} recipients = new {@link DefaultChannelGroup}();</strong>
+ * <strong>{@link ChannelGroup} recipients =
+ *         new {@link DefaultChannelGroup}({@link GlobalEventExecutor}.INSTANCE);</strong>
  * recipients.add(channelA);
  * recipients.add(channelB);
  * ..
@@ -60,15 +61,17 @@ import java.util.Set;
  * This rule is very useful when you shut down a server in one shot:
  *
  * <pre>
- * <strong>{@link ChannelGroup} allChannels = new {@link DefaultChannelGroup}();</strong>
+ * <strong>{@link ChannelGroup} allChannels =
+ *         new {@link DefaultChannelGroup}({@link GlobalEventExecutor}.INSTANCE);</strong>
  *
  * public static void main(String[] args) throws Exception {
  *     {@link ServerBootstrap} b = new {@link ServerBootstrap}(..);
  *     ...
+ *     b.childHandler(new MyHandler());
  *
  *     // Start the server
  *     b.getPipeline().addLast("handler", new MyHandler());
- *     {@link Channel} serverChannel = b.bind(..);
+ *     {@link Channel} serverChannel = b.bind(..).sync();
  *     <strong>allChannels.add(serverChannel);</strong>
  *
  *     ... Wait until the shutdown signal reception ...
@@ -82,7 +85,7 @@ import java.util.Set;
  *     {@code @Override}
  *     public void channelActive({@link ChannelHandlerContext} ctx) {
  *         // closed on shutdown.
- *         <strong>allChannels.add(e.getChannel());</strong>
+ *         <strong>allChannels.add(ctx.channel());</strong>
  *         super.channelActive(ctx);
  *     }
  * }
@@ -194,22 +197,4 @@ public interface ChannelGroup extends Set<Channel>, Comparable<ChannelGroup> {
      *         the operation is done for all channels
      */
     ChannelGroupFuture close(ChannelMatcher matcher);
-
-    /**
-     * Deregister all {@link Channel}s in this group from their {@link EventLoop}.
-     * Please note that this operation is asynchronous as {@link Channel#deregister()} is.
-     *
-     * @return the {@link ChannelGroupFuture} instance that notifies when
-     *         the operation is done for all channels
-     */
-    ChannelGroupFuture deregister();
-
-    /**
-     * Deregister all {@link Channel}s in this group from their {@link EventLoop} that match the given
-     * {@link ChannelMatcher}. Please note that this operation is asynchronous as {@link Channel#deregister()} is.
-     *
-     * @return the {@link ChannelGroupFuture} instance that notifies when
-     *         the operation is done for all channels
-     */
-    ChannelGroupFuture deregister(ChannelMatcher matcher);
 }

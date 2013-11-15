@@ -24,6 +24,7 @@ import io.netty.channel.ServerChannel;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.internal.ConcurrentSet;
+import io.netty.util.internal.StringUtil;
 
 import java.util.AbstractSet;
 import java.util.ArrayList;
@@ -170,10 +171,6 @@ public class DefaultChannelGroup extends AbstractSet<Channel> implements Channel
     public ChannelGroupFuture disconnect() {
         return disconnect(ChannelMatchers.all());
     }
-    @Override
-    public ChannelGroupFuture deregister() {
-        return deregister(ChannelMatchers.all());
-    }
 
     @Override
     public ChannelGroupFuture write(Object message) {
@@ -269,29 +266,6 @@ public class DefaultChannelGroup extends AbstractSet<Channel> implements Channel
     }
 
     @Override
-    public ChannelGroupFuture deregister(ChannelMatcher matcher) {
-        if (matcher == null) {
-            throw new NullPointerException("matcher");
-        }
-
-        Map<Channel, ChannelFuture> futures =
-                new LinkedHashMap<Channel, ChannelFuture>(size());
-
-        for (Channel c: serverChannels) {
-            if (matcher.matches(c)) {
-                futures.put(c, c.deregister());
-            }
-        }
-        for (Channel c: nonServerChannels) {
-            if (matcher.matches(c)) {
-                futures.put(c, c.deregister());
-            }
-        }
-
-        return new DefaultChannelGroupFuture(this, futures, executor);
-    }
-
-    @Override
     public ChannelGroup flush(ChannelMatcher matcher) {
         for (Channel c: nonServerChannels) {
             if (matcher.matches(c)) {
@@ -342,7 +316,6 @@ public class DefaultChannelGroup extends AbstractSet<Channel> implements Channel
 
     @Override
     public String toString() {
-        return getClass().getSimpleName() +
-               "(name: " + name() + ", size: " + size() + ')';
+        return StringUtil.simpleClassName(this) + "(name: " + name() + ", size: " + size() + ')';
     }
 }

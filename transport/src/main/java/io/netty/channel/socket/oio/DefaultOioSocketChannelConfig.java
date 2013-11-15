@@ -18,6 +18,7 @@ package io.netty.channel.socket.oio;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.channel.socket.DefaultSocketChannelConfig;
 import io.netty.channel.socket.SocketChannel;
@@ -132,7 +133,7 @@ public class DefaultOioSocketChannelConfig extends DefaultSocketChannelConfig im
 
     @Override
     public OioSocketChannelConfig setAllowHalfClosure(boolean allowHalfClosure) {
-        super.setAllowHalfClosure(true);
+        super.setAllowHalfClosure(allowHalfClosure);
         return this;
     }
 
@@ -169,6 +170,24 @@ public class DefaultOioSocketChannelConfig extends DefaultSocketChannelConfig im
     @Override
     public OioSocketChannelConfig setAutoRead(boolean autoRead) {
         super.setAutoRead(autoRead);
+        return this;
+    }
+
+    @Override
+    public OioSocketChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark) {
+        super.setWriteBufferHighWaterMark(writeBufferHighWaterMark);
+        return this;
+    }
+
+    @Override
+    public OioSocketChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark) {
+        super.setWriteBufferLowWaterMark(writeBufferLowWaterMark);
+        return this;
+    }
+
+    @Override
+    public OioSocketChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator) {
+        super.setMessageSizeEstimator(estimator);
         return this;
     }
 }

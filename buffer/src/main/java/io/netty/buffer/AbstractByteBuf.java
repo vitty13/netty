@@ -18,6 +18,7 @@ package io.netty.buffer;
 import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.internal.PlatformDependent;
+import io.netty.util.internal.StringUtil;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -36,7 +37,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
 
     static final ResourceLeakDetector<ByteBuf> leakDetector = new ResourceLeakDetector<ByteBuf>(ByteBuf.class);
 
-    private int readerIndex;
+    int readerIndex;
     private int writerIndex;
     private int markedReaderIndex;
     private int markedWriterIndex;
@@ -559,6 +560,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
 
     @Override
     public byte readByte() {
+        checkReadableBytes(1);
         int i = readerIndex;
         byte b = getByte(i);
         readerIndex = i + 1;
@@ -729,6 +731,8 @@ public abstract class AbstractByteBuf extends ByteBuf {
 
     @Override
     public ByteBuf skipBytes(int length) {
+        checkReadableBytes(length);
+
         int newReaderIndex = readerIndex + length;
         if (newReaderIndex > writerIndex) {
             throw new IndexOutOfBoundsException(String.format(
@@ -862,8 +866,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
     }
 
     @Override
-    public int writeBytes(ScatteringByteChannel in, int length)
-            throws IOException {
+    public int writeBytes(ScatteringByteChannel in, int length) throws IOException {
         ensureWritable(length);
         int writtenBytes = setBytes(writerIndex, in, length);
         if (writtenBytes > 0) {
@@ -878,6 +881,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
             return this;
         }
 
+        ensureWritable(length);
         checkIndex(writerIndex, length);
 
         int nLong = length >>> 3;
@@ -932,11 +936,6 @@ public abstract class AbstractByteBuf extends ByteBuf {
     @Override
     public ByteBuffer[] nioBuffers() {
         return nioBuffers(readerIndex, readableBytes());
-    }
-
-    @Override
-    public ByteBuffer nioBuffer(int index, int length) {
-        return internalNioBuffer(index, length).slice();
     }
 
     @Override
@@ -1088,11 +1087,11 @@ public abstract class AbstractByteBuf extends ByteBuf {
     @Override
     public String toString() {
         if (refCnt() == 0) {
-            return getClass().getSimpleName() + "(freed)";
+            return StringUtil.simpleClassName(this) + "(freed)";
         }
 
         StringBuilder buf = new StringBuilder();
-        buf.append(getClass().getSimpleName());
+        buf.append(StringUtil.simpleClassName(this));
         buf.append("(ridx: ");
         buf.append(readerIndex);
         buf.append(", widx: ");
@@ -1155,6 +1154,9 @@ public abstract class AbstractByteBuf extends ByteBuf {
      */
     protected final void checkReadableBytes(int minimumReadableBytes) {
         ensureAccessible();
+        if (minimumReadableBytes < 0) {
+            throw new IllegalArgumentException("minimumReadableBytes: " + minimumReadableBytes + " (expected: >= 0)");
+        }
         if (readerIndex > writerIndex - minimumReadableBytes) {
             throw new IndexOutOfBoundsException(String.format(
                     "readerIndex(%d) + length(%d) exceeds writerIndex(%d): %s",

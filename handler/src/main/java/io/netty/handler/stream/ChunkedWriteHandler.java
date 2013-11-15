@@ -15,6 +15,9 @@
  */
 package io.netty.handler.stream;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufHolder;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
@@ -22,6 +25,7 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
+import io.netty.channel.ChannelProgressivePromise;
 import io.netty.channel.ChannelPromise;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.internal.logging.InternalLogger;
@@ -30,7 +34,6 @@ import io.netty.util.internal.logging.InternalLoggerFactory;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayDeque;
 import java.util.Queue;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A {@link ChannelHandler} that adds support for writing a large data stream
@@ -70,29 +73,26 @@ public class ChunkedWriteHandler
         InternalLoggerFactory.getInstance(ChunkedWriteHandler.class);
 
     private final Queue<PendingWrite> queue = new ArrayDeque<PendingWrite>();
-    private final int maxPendingWrites;
     private volatile ChannelHandlerContext ctx;
-    private final AtomicInteger pendingWrites = new AtomicInteger();
     private PendingWrite currentWrite;
+
     public ChunkedWriteHandler() {
-        this(4);
     }
 
+    /**
+     * @deprecated use {@link #ChunkedWriteHandler()}
+     */
+    @Deprecated
     public ChunkedWriteHandler(int maxPendingWrites) {
         if (maxPendingWrites <= 0) {
             throw new IllegalArgumentException(
                     "maxPendingWrites: " + maxPendingWrites + " (expected: > 0)");
         }
-        this.maxPendingWrites = maxPendingWrites;
     }
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         this.ctx = ctx;
-    }
-
-    private boolean isWritable() {
-        return pendingWrites.get() < maxPendingWrites;
     }
 
     /**
@@ -130,18 +130,14 @@ public class ChunkedWriteHandler
     }
 
     @Override
-    public void read(ChannelHandlerContext ctx) {
-        ctx.read();
-    }
-
-    @Override
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
         queue.add(new PendingWrite(msg, promise));
     }
 
     @Override
     public void flush(ChannelHandlerContext ctx) throws Exception {
-        if (isWritable() || !ctx.channel().isActive()) {
+        Channel channel = ctx.channel();
+        if (channel.isWritable() || !channel.isActive()) {
             doFlush(ctx);
         }
     }
@@ -150,6 +146,15 @@ public class ChunkedWriteHandler
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
         doFlush(ctx);
         super.channelInactive(ctx);
+    }
+
+    @Override
+    public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
+        if (ctx.channel().isWritable()) {
+            // channel is writable again try to continue flushing
+            doFlush(ctx);
+        }
+        ctx.fireChannelWritabilityChanged();
     }
 
     private void discard(Throwable cause) {
@@ -175,7 +180,7 @@ public class ChunkedWriteHandler
                         }
                         currentWrite.fail(cause);
                     } else {
-                        currentWrite.promise.setSuccess();
+                        currentWrite.success();
                     }
                     closeInput(in);
                 } catch (Exception e) {
@@ -193,13 +198,13 @@ public class ChunkedWriteHandler
     }
 
     private void doFlush(final ChannelHandlerContext ctx) throws Exception {
-        Channel channel = ctx.channel();
+        final Channel channel = ctx.channel();
         if (!channel.isActive()) {
             discard(null);
             return;
         }
         boolean needsFlush;
-        while (isWritable()) {
+        while (channel.isWritable()) {
             if (currentWrite == null) {
                 currentWrite = queue.poll();
             }
@@ -234,17 +239,6 @@ public class ChunkedWriteHandler
                     }
 
                     currentWrite.fail(t);
-                    if (ctx.executor().inEventLoop()) {
-                        ctx.fireExceptionCaught(t);
-                    } else {
-                        ctx.executor().execute(new Runnable() {
-                            @Override
-                            public void run() {
-                                ctx.fireExceptionCaught(t);
-                            }
-                        });
-                    }
-
                     closeInput(chunks);
                     break;
                 }
@@ -256,7 +250,13 @@ public class ChunkedWriteHandler
                     break;
                 }
 
-                pendingWrites.incrementAndGet();
+                if (message == null) {
+                    // If message is null write an empty ByteBuf.
+                    // See https://github.com/netty/netty/issues/1671
+                    message = Unpooled.EMPTY_BUFFER;
+                }
+
+                final int amount = amount(message);
                 ChannelFuture f = ctx.write(message);
                 if (endOfInput) {
                     this.currentWrite = null;
@@ -269,19 +269,20 @@ public class ChunkedWriteHandler
                     f.addListener(new ChannelFutureListener() {
                         @Override
                         public void operationComplete(ChannelFuture future) throws Exception {
-                            pendingWrites.decrementAndGet();
-                            currentWrite.promise.setSuccess();
+                            currentWrite.progress(amount);
+                            currentWrite.success();
                             closeInput(chunks);
                         }
                     });
-                } else if (isWritable()) {
+                } else if (channel.isWritable()) {
                     f.addListener(new ChannelFutureListener() {
                         @Override
                         public void operationComplete(ChannelFuture future) throws Exception {
-                            pendingWrites.decrementAndGet();
                             if (!future.isSuccess()) {
                                 closeInput((ChunkedInput<?>) pendingMessage);
                                 currentWrite.fail(future.cause());
+                            } else {
+                                currentWrite.progress(amount);
                             }
                         }
                     });
@@ -289,12 +290,14 @@ public class ChunkedWriteHandler
                     f.addListener(new ChannelFutureListener() {
                         @Override
                         public void operationComplete(ChannelFuture future) throws Exception {
-                            pendingWrites.decrementAndGet();
                             if (!future.isSuccess()) {
                                 closeInput((ChunkedInput<?>) pendingMessage);
                                 currentWrite.fail(future.cause());
-                            } else if (isWritable()) {
-                                resumeTransfer();
+                            } else {
+                                currentWrite.progress(amount);
+                                if (channel.isWritable()) {
+                                    resumeTransfer();
+                                }
                             }
                         }
                     });
@@ -327,6 +330,7 @@ public class ChunkedWriteHandler
     private static final class PendingWrite {
         final Object msg;
         final ChannelPromise promise;
+        private long progress;
 
         PendingWrite(Object msg, ChannelPromise promise) {
             this.msg = msg;
@@ -336,8 +340,33 @@ public class ChunkedWriteHandler
         void fail(Throwable cause) {
             ReferenceCountUtil.release(msg);
             if (promise != null) {
-                promise.setFailure(cause);
+                promise.tryFailure(cause);
             }
         }
+
+        void success() {
+            if (promise instanceof ChannelProgressivePromise) {
+                // Now we know what the total is.
+                ((ChannelProgressivePromise) promise).tryProgress(progress, progress);
+            }
+            promise.setSuccess();
+        }
+
+        void progress(int amount) {
+            progress += amount;
+            if (promise instanceof ChannelProgressivePromise) {
+                ((ChannelProgressivePromise) promise).tryProgress(progress, -1);
+            }
+        }
+    }
+
+    private static int amount(Object msg) {
+        if (msg instanceof ByteBuf) {
+            return ((ByteBuf) msg).readableBytes();
+        }
+        if (msg instanceof ByteBufHolder) {
+            return ((ByteBufHolder) msg).content().readableBytes();
+        }
+        return 1;
     }
 }

@@ -39,7 +39,7 @@ import java.util.Iterator;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -111,8 +111,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     private int cancelledKeys;
     private boolean needsToSelectAgain;
 
-    NioEventLoop(NioEventLoopGroup parent, ThreadFactory threadFactory, SelectorProvider selectorProvider) {
-        super(parent, threadFactory, false);
+    NioEventLoop(NioEventLoopGroup parent, Executor executor, SelectorProvider selectorProvider) {
+        super(parent, executor, false);
         if (selectorProvider == null) {
             throw new NullPointerException("selectorProvider");
         }
@@ -137,7 +137,12 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
             Class<?> selectorImplClass =
                     Class.forName("sun.nio.ch.SelectorImpl", false, ClassLoader.getSystemClassLoader());
-            selectorImplClass.isAssignableFrom(selector.getClass());
+
+            // Ensure the current selector implementation is what we can instrument.
+            if (!selectorImplClass.isAssignableFrom(selector.getClass())) {
+                return selector;
+            }
+
             Field selectedKeysField = selectorImplClass.getDeclaredField("selectedKeys");
             Field publicSelectedKeysField = selectorImplClass.getDeclaredField("publicSelectedKeys");
 
@@ -191,24 +196,6 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             ch.register(selector, interestOps, task);
         } catch (Exception e) {
             throw new EventLoopException("failed to register a channel", e);
-        }
-    }
-
-    void executeWhenWritable(AbstractNioChannel channel, NioTask<SelectableChannel> task) {
-        if (channel == null) {
-            throw new NullPointerException("channel");
-        }
-
-        if (isShutdown()) {
-            throw new IllegalStateException("event loop shut down");
-        }
-
-        SelectionKey key = channel.selectionKey();
-        channel.writableTasks.offer(task);
-
-        int interestOps = key.interestOps();
-        if ((interestOps & SelectionKey.OP_WRITE) == 0) {
-            key.interestOps(interestOps | SelectionKey.OP_WRITE);
         }
     }
 
@@ -490,9 +477,10 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             return;
         }
 
-        int readyOps = -1;
         try {
-            readyOps = k.readyOps();
+            int readyOps = k.readyOps();
+            // Also check for readOps of 0 to workaround possible JDK bug which may otherwise lead
+            // to a spin loop
             if ((readyOps & (SelectionKey.OP_READ | SelectionKey.OP_ACCEPT)) != 0 || readyOps == 0) {
                 unsafe.read();
                 if (!ch.isOpen()) {
@@ -501,7 +489,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 }
             }
             if ((readyOps & SelectionKey.OP_WRITE) != 0) {
-                processWritable(ch);
+                // Call forceFlush which will also take care of clear the OP_WRITE once there is nothing left to write
+                ch.unsafe().forceFlush();
             }
             if ((readyOps & SelectionKey.OP_CONNECT) != 0) {
                 // remove OP_CONNECT as otherwise Selector.select(..) will always return without blocking
@@ -513,34 +502,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 unsafe.finishConnect();
             }
         } catch (CancelledKeyException e) {
-            if (readyOps != -1 && (readyOps & SelectionKey.OP_WRITE) != 0) {
-                unregisterWritableTasks(ch);
-            }
             unsafe.close(unsafe.voidPromise());
-        }
-    }
-
-    private static void processWritable(AbstractNioChannel ch) {
-        NioTask<SelectableChannel> task;
-        for (;;) {
-            task = ch.writableTasks.poll();
-            if (task == null) { break; }
-            processSelectedKey(ch.selectionKey(), task);
-        }
-
-        // Call forceFlush which will also take care of clear the OP_WRITE once there is nothing left to write
-        ch.unsafe().forceFlush();
-    }
-
-    private static void unregisterWritableTasks(AbstractNioChannel ch) {
-        NioTask<SelectableChannel> task;
-        for (;;) {
-            task = ch.writableTasks.poll();
-            if (task == null) {
-                break;
-            } else {
-                invokeChannelUnregistered(task, ch.selectionKey(), null);
-            }
         }
     }
 
@@ -585,7 +547,6 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
 
         for (AbstractNioChannel ch: channels) {
-            unregisterWritableTasks(ch);
             ch.unsafe().close(ch.unsafe().voidPromise());
         }
     }
