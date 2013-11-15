@@ -497,7 +497,7 @@ public final class SwappedByteBuf extends ByteBuf {
 
     @Override
     public ByteBuf readSlice(int length) {
-        return buf.readSlice(length).order(order);
+        return buf.readSlice(length);
     }
 
     @Override
@@ -741,7 +741,8 @@ public final class SwappedByteBuf extends ByteBuf {
 
     @Override
     public ByteBuffer internalNioBuffer(int index, int length) {
-        return nioBuffer(index, length);
+        // Do not mess with the internal buffer's byte order.
+        return buf.nioBuffer(index, length).order(order);
     }
 
     @Override

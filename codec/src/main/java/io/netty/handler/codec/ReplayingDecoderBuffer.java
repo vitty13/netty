@@ -21,7 +21,6 @@ import io.netty.buffer.ByteBufProcessor;
 import io.netty.buffer.SwappedByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.util.Signal;
-import io.netty.util.internal.StringUtil;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -789,7 +788,7 @@ final class ReplayingDecoderBuffer extends ByteBuf {
 
     @Override
     public String toString() {
-        return StringUtil.simpleClassName(this) + '(' +
+        return getClass().getSimpleName() + '(' +
                "ridx=" +
                readerIndex() +
                ", " +

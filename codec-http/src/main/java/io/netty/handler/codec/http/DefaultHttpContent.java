@@ -16,7 +16,6 @@
 package io.netty.handler.codec.http;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.util.internal.StringUtil;
 
 /**
  * The default {@link HttpContent} implementation.
@@ -79,7 +78,6 @@ public class DefaultHttpContent extends DefaultHttpObject implements HttpContent
 
     @Override
     public String toString() {
-        return StringUtil.simpleClassName(this) +
-               "(data: " + content() + ", getDecoderResult: " + getDecoderResult() + ')';
+        return getClass().getSimpleName() + "(data: " + content() + ", getDecoderResult: " + getDecoderResult() + ')';
     }
 }

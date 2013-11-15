@@ -55,7 +55,7 @@ public class HttpSnoopServerHandler extends SimpleChannelInboundHandler<Object> 
     }
 
     @Override
-    protected void messageReceived(ChannelHandlerContext ctx, Object msg) {
+    protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
         if (msg instanceof HttpRequest) {
             HttpRequest request = this.request = (HttpRequest) msg;
 
@@ -71,9 +71,9 @@ public class HttpSnoopServerHandler extends SimpleChannelInboundHandler<Object> 
             buf.append("HOSTNAME: ").append(getHost(request, "unknown")).append("\r\n");
             buf.append("REQUEST_URI: ").append(request.getUri()).append("\r\n\r\n");
 
-            HttpHeaders headers = request.headers();
+            List<Map.Entry<String, String>> headers = request.headers().entries();
             if (!headers.isEmpty()) {
-                for (Map.Entry<String, String> h: headers) {
+                for (Map.Entry<String, String> h: request.headers().entries()) {
                     String key = h.getKey();
                     String value = h.getValue();
                     buf.append("HEADER: ").append(key).append(" = ").append(value).append("\r\n");

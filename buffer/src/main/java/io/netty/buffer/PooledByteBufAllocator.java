@@ -17,6 +17,7 @@
 package io.netty.buffer;
 
 import io.netty.util.internal.PlatformDependent;
+import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.SystemPropertyUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -239,27 +240,20 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator {
         }
     }
 
-    @Override
-    public boolean isDirectBufferPooled() {
-        return directArenas != null;
+    public String toString() {
+        StringBuilder buf = new StringBuilder();
+        buf.append(heapArenas.length);
+        buf.append(" heap arena(s):");
+        buf.append(StringUtil.NEWLINE);
+        for (PoolArena<byte[]> a: heapArenas) {
+            buf.append(a);
+        }
+        buf.append(directArenas.length);
+        buf.append(" direct arena(s):");
+        buf.append(StringUtil.NEWLINE);
+        for (PoolArena<ByteBuffer> a: directArenas) {
+            buf.append(a);
+        }
+        return buf.toString();
     }
-
-//    Too noisy at the moment.
-//
-//    public String toString() {
-//        StringBuilder buf = new StringBuilder();
-//        buf.append(heapArenas.length);
-//        buf.append(" heap arena(s):");
-//        buf.append(StringUtil.NEWLINE);
-//        for (PoolArena<byte[]> a: heapArenas) {
-//            buf.append(a);
-//        }
-//        buf.append(directArenas.length);
-//        buf.append(" direct arena(s):");
-//        buf.append(StringUtil.NEWLINE);
-//        for (PoolArena<ByteBuffer> a: directArenas) {
-//            buf.append(a);
-//        }
-//        return buf.toString();
-//    }
 }

@@ -93,7 +93,7 @@ public class FileServer {
 
     private static final class FileHandler extends SimpleChannelInboundHandler<String> {
         @Override
-        public void messageReceived(ChannelHandlerContext ctx, String msg) throws Exception {
+        public void channelRead0(ChannelHandlerContext ctx, String msg) throws Exception {
             File file = new File(msg);
             if (file.exists()) {
                 if (!file.isFile()) {
@@ -101,11 +101,9 @@ public class FileServer {
                     return;
                 }
                 ctx.write(file + " " + file.length() + '\n');
-                FileInputStream fis = new FileInputStream(file);
-                FileRegion region = new DefaultFileRegion(fis.getChannel(), 0, file.length());
+                FileRegion region = new DefaultFileRegion(new FileInputStream(file).getChannel(), 0, file.length());
                 ctx.write(region);
                 ctx.writeAndFlush("\n");
-                fis.close();
             } else {
                 ctx.writeAndFlush("File not found: " + file + '\n');
             }

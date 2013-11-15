@@ -30,9 +30,6 @@ public interface FullHttpResponse extends HttpResponse, FullHttpMessage {
     FullHttpResponse retain();
 
     @Override
-    FullHttpResponse duplicate();
-
-    @Override
     FullHttpResponse setProtocolVersion(HttpVersion version);
 
     @Override

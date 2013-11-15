@@ -19,7 +19,6 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.DefaultChannelConfig;
-import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.util.internal.PlatformDependent;
 
@@ -281,8 +280,7 @@ public class DefaultSocketChannelConfig extends DefaultChannelConfig
 
     @Override
     public SocketChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis) {
-        super.setConnectTimeoutMillis(connectTimeoutMillis);
-        return this;
+        return (SocketChannelConfig) super.setConnectTimeoutMillis(connectTimeoutMillis);
     }
 
     @Override
@@ -293,14 +291,12 @@ public class DefaultSocketChannelConfig extends DefaultChannelConfig
 
     @Override
     public SocketChannelConfig setWriteSpinCount(int writeSpinCount) {
-        super.setWriteSpinCount(writeSpinCount);
-        return this;
+        return (SocketChannelConfig) super.setWriteSpinCount(writeSpinCount);
     }
 
     @Override
     public SocketChannelConfig setAllocator(ByteBufAllocator allocator) {
-        super.setAllocator(allocator);
-        return this;
+        return (SocketChannelConfig) super.setAllocator(allocator);
     }
 
     @Override
@@ -311,25 +307,16 @@ public class DefaultSocketChannelConfig extends DefaultChannelConfig
 
     @Override
     public SocketChannelConfig setAutoRead(boolean autoRead) {
-         super.setAutoRead(autoRead);
-        return this;
+        return (SocketChannelConfig) super.setAutoRead(autoRead);
     }
 
     @Override
     public SocketChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark) {
-        super.setWriteBufferHighWaterMark(writeBufferHighWaterMark);
-        return this;
+        return (SocketChannelConfig) super.setWriteBufferHighWaterMark(writeBufferHighWaterMark);
     }
 
     @Override
     public SocketChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark) {
-        super.setWriteBufferLowWaterMark(writeBufferLowWaterMark);
-        return this;
-    }
-
-    @Override
-    public SocketChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator) {
-        super.setMessageSizeEstimator(estimator);
-        return this;
+        return (SocketChannelConfig) super.setWriteBufferLowWaterMark(writeBufferLowWaterMark);
     }
 }

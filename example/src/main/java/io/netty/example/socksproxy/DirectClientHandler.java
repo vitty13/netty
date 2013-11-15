@@ -17,7 +17,6 @@ package io.netty.example.socksproxy;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.util.concurrent.Promise;
 
 
 public final class DirectClientHandler extends ChannelInboundHandlerAdapter {
@@ -26,20 +25,20 @@ public final class DirectClientHandler extends ChannelInboundHandlerAdapter {
     public static String getName() {
         return name;
     }
-    private final Promise promise;
+    private final CallbackNotifier cb;
 
-    public DirectClientHandler(Promise promise) {
-        this.promise = promise;
+    public DirectClientHandler(CallbackNotifier cb) {
+        this.cb = cb;
     }
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) {
         ctx.pipeline().remove(this);
-        promise.setSuccess(ctx.channel());
+        cb.onSuccess(ctx);
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable throwable) throws Exception {
-        promise.setFailure(throwable);
+        cb.onFailure(ctx, throwable);
     }
 }

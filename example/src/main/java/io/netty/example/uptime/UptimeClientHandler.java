@@ -49,7 +49,7 @@ public class UptimeClientHandler extends SimpleChannelInboundHandler<Object> {
     }
 
     @Override
-    public void messageReceived(ChannelHandlerContext ctx, Object msg) throws Exception {
+    public void channelRead0(ChannelHandlerContext ctx, Object msg) throws Exception {
         // Discard received data
     }
 
@@ -68,9 +68,13 @@ public class UptimeClientHandler extends SimpleChannelInboundHandler<Object> {
     }
 
     @Override
-    public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
         println("Disconnected from: " + ctx.channel().remoteAddress());
+    }
 
+    @Override
+    public void channelUnregistered(final ChannelHandlerContext ctx)
+            throws Exception {
         println("Sleeping for: " + UptimeClient.RECONNECT_DELAY + 's');
 
         final EventLoop loop = ctx.channel().eventLoop();

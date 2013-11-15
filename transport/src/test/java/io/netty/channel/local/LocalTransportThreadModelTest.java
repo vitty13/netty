@@ -91,7 +91,7 @@ public class LocalTransportThreadModelTest {
         ThreadNameAuditor h2 = new ThreadNameAuditor();
         ThreadNameAuditor h3 = new ThreadNameAuditor();
 
-        Channel ch = new LocalChannel(l.next());
+        Channel ch = new LocalChannel();
         // With no EventExecutor specified, h1 will be always invoked by EventLoop 'l'.
         ch.pipeline().addLast(h1);
         // h2 will be always invoked by EventExecutor 'e1'.
@@ -99,9 +99,7 @@ public class LocalTransportThreadModelTest {
         // h3 will be always invoked by EventExecutor 'e2'.
         ch.pipeline().addLast(e2, h3);
 
-        ChannelPromise promise = ch.newPromise();
-        ch.unsafe().register(promise);
-        promise.sync().channel().connect(localAddr).sync();
+        l.register(ch).sync().channel().connect(localAddr).sync();
 
         // Fire inbound events from all possible starting points.
         ch.pipeline().fireChannelRead("1");
@@ -244,7 +242,7 @@ public class LocalTransportThreadModelTest {
             final MessageForwarder2 h5 = new MessageForwarder2();
             final MessageDiscarder  h6 = new MessageDiscarder();
 
-            final Channel ch = new LocalChannel(l.next());
+            final Channel ch = new LocalChannel();
 
             // inbound:  int -> byte[4] -> int -> int -> byte[4] -> int -> /dev/null
             // outbound: int -> int -> byte[4] -> int -> int -> byte[4] -> /dev/null
@@ -255,9 +253,7 @@ public class LocalTransportThreadModelTest {
                          .addLast(e4, h5)
                          .addLast(e5, h6);
 
-            ChannelPromise promise = ch.newPromise();
-            ch.unsafe().register(promise);
-            promise.sync().channel().connect(localAddr).sync();
+            l.register(ch).sync().channel().connect(localAddr).sync();
 
             final int ROUNDS = 1024;
             final int ELEMS_PER_ROUNDS = 8192;

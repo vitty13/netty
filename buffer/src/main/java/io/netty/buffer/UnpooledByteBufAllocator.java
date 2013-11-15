@@ -51,9 +51,4 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator {
             return new UnpooledDirectByteBuf(this, initialCapacity, maxCapacity);
         }
     }
-
-    @Override
-    public boolean isDirectBufferPooled() {
-        return false;
-    }
 }

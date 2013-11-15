@@ -153,15 +153,9 @@ public abstract class HttpContentDecoder extends MessageToMessageDecoder<HttpObj
         if (c instanceof LastHttpContent) {
             finishDecode(out);
 
-            LastHttpContent last = (LastHttpContent) c;
             // Generate an additional chunk if the decoder produced
             // the last product on closure,
-            HttpHeaders headers = last.trailingHeaders();
-            if (headers.isEmpty()) {
-                out.add(LastHttpContent.EMPTY_LAST_CONTENT);
-            } else {
-                out.add(new ComposedLastHttpContent(headers));
-            }
+            out.add(LastHttpContent.EMPTY_LAST_CONTENT);
         }
     }
 
@@ -220,7 +214,7 @@ public abstract class HttpContentDecoder extends MessageToMessageDecoder<HttpObj
 
     private void decode(ByteBuf in, List<Object> out) {
         // call retain here as it will call release after its written to the channel
-        decoder.writeInbound(in.retain());
+        decoder.writeOutbound(in.retain());
         fetchDecoderOutput(out);
     }
 
@@ -234,7 +228,7 @@ public abstract class HttpContentDecoder extends MessageToMessageDecoder<HttpObj
 
     private void fetchDecoderOutput(List<Object> out) {
         for (;;) {
-            ByteBuf buf = (ByteBuf) decoder.readInbound();
+            ByteBuf buf = (ByteBuf) decoder.readOutbound();
             if (buf == null) {
                 break;
             }

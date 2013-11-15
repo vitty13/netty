@@ -18,7 +18,6 @@ package io.netty.buffer;
 
 import io.netty.util.internal.EmptyArrays;
 import io.netty.util.internal.PlatformDependent;
-import io.netty.util.internal.StringUtil;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -65,7 +64,7 @@ public final class EmptyByteBuf extends ByteBuf {
 
         this.alloc = alloc;
         this.order = order;
-        str = StringUtil.simpleClassName(this) + (order == ByteOrder.BIG_ENDIAN? "BE" : "LE");
+        str = getClass().getSimpleName() + (order == ByteOrder.BIG_ENDIAN? "BE" : "LE");
     }
 
     @Override
@@ -808,11 +807,13 @@ public final class EmptyByteBuf extends ByteBuf {
 
     @Override
     public boolean isReadable(int size) {
+        checkLength(size);
         return false;
     }
 
     @Override
     public boolean isWritable(int size) {
+        checkLength(size);
         return false;
     }
 

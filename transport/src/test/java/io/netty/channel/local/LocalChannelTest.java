@@ -130,11 +130,8 @@ public class LocalChannelTest {
             assertThat(e, is(instanceOf(ClosedChannelException.class)));
             // Ensure that the actual write attempt on a closed channel was never made by asserting that
             // the ClosedChannelException has been created by AbstractUnsafe rather than transport implementations.
-            if (e.getStackTrace().length > 0) {
-                assertThat(
-                        e.getStackTrace()[0].getClassName(), is(AbstractChannel.class.getName() + "$AbstractUnsafe"));
-                e.printStackTrace();
-            }
+            assertThat(e.getStackTrace()[0].getClassName(), is(AbstractChannel.class.getName() + "$AbstractUnsafe"));
+            e.printStackTrace();
         }
 
         serverGroup.shutdownGracefully();

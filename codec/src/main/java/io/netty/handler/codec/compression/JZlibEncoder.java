@@ -23,11 +23,10 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
-import io.netty.channel.ChannelPromiseNotifier;
-import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.internal.EmptyArrays;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 
 /**
@@ -36,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 public class JZlibEncoder extends ZlibEncoder {
 
     private final Deflater z = new Deflater();
-    private volatile boolean finished;
+    private final AtomicBoolean finished = new AtomicBoolean();
     private volatile ChannelHandlerContext ctx;
 
     /**
@@ -139,11 +138,13 @@ public class JZlibEncoder extends ZlibEncoder {
                     "allowed for compression.");
         }
 
-        int resultCode = z.init(
-                compressionLevel, windowBits, memLevel,
-                ZlibUtil.convertWrapperType(wrapper));
-        if (resultCode != JZlib.Z_OK) {
-            ZlibUtil.fail(z, "initialization failure", resultCode);
+        synchronized (z) {
+            int resultCode = z.init(
+                    compressionLevel, windowBits, memLevel,
+                    ZlibUtil.convertWrapperType(wrapper));
+            if (resultCode != JZlib.Z_OK) {
+                ZlibUtil.fail(z, "initialization failure", resultCode);
+            }
         }
     }
 
@@ -221,16 +222,19 @@ public class JZlibEncoder extends ZlibEncoder {
         if (dictionary == null) {
             throw new NullPointerException("dictionary");
         }
-        int resultCode;
-        resultCode = z.deflateInit(
-                compressionLevel, windowBits, memLevel,
-                JZlib.W_ZLIB); // Default: ZLIB format
-        if (resultCode != JZlib.Z_OK) {
-            ZlibUtil.fail(z, "initialization failure", resultCode);
-        } else {
-            resultCode = z.deflateSetDictionary(dictionary, dictionary.length);
+
+        synchronized (z) {
+            int resultCode;
+            resultCode = z.deflateInit(
+                    compressionLevel, windowBits, memLevel,
+                    JZlib.W_ZLIB); // Default: ZLIB format
             if (resultCode != JZlib.Z_OK) {
-                ZlibUtil.fail(z, "failed to set the dictionary", resultCode);
+                ZlibUtil.fail(z, "initialization failure", resultCode);
+            } else {
+                resultCode = z.deflateSetDictionary(dictionary, dictionary.length);
+                if (resultCode != JZlib.Z_OK) {
+                    ZlibUtil.fail(z, "failed to set the dictionary", resultCode);
+                }
             }
         }
     }
@@ -241,22 +245,8 @@ public class JZlibEncoder extends ZlibEncoder {
     }
 
     @Override
-    public ChannelFuture close(final ChannelPromise promise) {
-        ChannelHandlerContext ctx = ctx();
-        EventExecutor executor = ctx.executor();
-        if (executor.inEventLoop()) {
-            return finishEncode(ctx, promise);
-        } else {
-            final ChannelPromise p = ctx.newPromise();
-            executor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    ChannelFuture f = finishEncode(ctx(), p);
-                    f.addListener(new ChannelPromiseNotifier(promise));
-                }
-            });
-            return p;
-        }
+    public ChannelFuture close(ChannelPromise promise) {
+        return finishEncode(ctx(), promise);
     }
 
     private ChannelHandlerContext ctx() {
@@ -269,69 +259,71 @@ public class JZlibEncoder extends ZlibEncoder {
 
     @Override
     public boolean isClosed() {
-        return finished;
+        return finished.get();
     }
 
     @Override
     protected void encode(ChannelHandlerContext ctx, ByteBuf in, ByteBuf out) throws Exception {
-        if (finished) {
+        if (finished.get()) {
             return;
         }
 
-        try {
-            // Configure input.
-            int inputLength = in.readableBytes();
-            boolean inHasArray = in.hasArray();
-            z.avail_in = inputLength;
-            if (inHasArray) {
-                z.next_in = in.array();
-                z.next_in_index = in.arrayOffset() + in.readerIndex();
-            } else {
-                byte[] array = new byte[inputLength];
-                in.getBytes(in.readerIndex(), array);
-                z.next_in = array;
-                z.next_in_index = 0;
-            }
-            int oldNextInIndex = z.next_in_index;
-
-            // Configure output.
-            int maxOutputLength = (int) Math.ceil(inputLength * 1.001) + 12;
-            out.ensureWritable(maxOutputLength);
-            z.avail_out = maxOutputLength;
-            z.next_out = out.array();
-            z.next_out_index = out.arrayOffset() + out.writerIndex();
-            int oldNextOutIndex = z.next_out_index;
-
-            // Note that Z_PARTIAL_FLUSH has been deprecated.
-            int resultCode;
+        synchronized (z) {
             try {
-                resultCode = z.deflate(JZlib.Z_SYNC_FLUSH);
+                // Configure input.
+                int inputLength = in.readableBytes();
+                boolean inHasArray = in.hasArray();
+                z.avail_in = inputLength;
+                if (inHasArray) {
+                    z.next_in = in.array();
+                    z.next_in_index = in.arrayOffset() + in.readerIndex();
+                } else {
+                    byte[] array = new byte[inputLength];
+                    in.getBytes(in.readerIndex(), array);
+                    z.next_in = array;
+                    z.next_in_index = 0;
+                }
+                int oldNextInIndex = z.next_in_index;
+
+                // Configure output.
+                int maxOutputLength = (int) Math.ceil(inputLength * 1.001) + 12;
+                out.ensureWritable(maxOutputLength);
+                z.avail_out = maxOutputLength;
+                z.next_out = out.array();
+                z.next_out_index = out.arrayOffset() + out.writerIndex();
+                int oldNextOutIndex = z.next_out_index;
+
+                // Note that Z_PARTIAL_FLUSH has been deprecated.
+                int resultCode;
+                try {
+                    resultCode = z.deflate(JZlib.Z_SYNC_FLUSH);
+                } finally {
+                    in.skipBytes(z.next_in_index - oldNextInIndex);
+                }
+
+                if (resultCode != JZlib.Z_OK) {
+                    ZlibUtil.fail(z, "compression failure", resultCode);
+                }
+
+                int outputLength = z.next_out_index - oldNextOutIndex;
+                if (outputLength > 0) {
+                    out.writerIndex(out.writerIndex() + outputLength);
+                }
             } finally {
-                in.skipBytes(z.next_in_index - oldNextInIndex);
+                // Deference the external references explicitly to tell the VM that
+                // the allocated byte arrays are temporary so that the call stack
+                // can be utilized.
+                // I'm not sure if the modern VMs do this optimization though.
+                z.next_in = null;
+                z.next_out = null;
             }
-
-            if (resultCode != JZlib.Z_OK) {
-                ZlibUtil.fail(z, "compression failure", resultCode);
-            }
-
-            int outputLength = z.next_out_index - oldNextOutIndex;
-            if (outputLength > 0) {
-                out.writerIndex(out.writerIndex() + outputLength);
-            }
-        } finally {
-            // Deference the external references explicitly to tell the VM that
-            // the allocated byte arrays are temporary so that the call stack
-            // can be utilized.
-            // I'm not sure if the modern VMs do this optimization though.
-            z.next_in = null;
-            z.next_out = null;
         }
     }
 
     @Override
     public void close(
             final ChannelHandlerContext ctx,
-            final ChannelPromise promise) {
+            final ChannelPromise promise) throws Exception {
         ChannelFuture f = finishEncode(ctx, ctx.newPromise());
         f.addListener(new ChannelFutureListener() {
             @Override
@@ -352,45 +344,47 @@ public class JZlibEncoder extends ZlibEncoder {
     }
 
     private ChannelFuture finishEncode(ChannelHandlerContext ctx, ChannelPromise promise) {
-        if (finished) {
+        if (!finished.compareAndSet(false, true)) {
             promise.setSuccess();
             return promise;
         }
-        finished = true;
 
         ByteBuf footer;
-        try {
-            // Configure input.
-            z.next_in = EmptyArrays.EMPTY_BYTES;
-            z.next_in_index = 0;
-            z.avail_in = 0;
+        synchronized (z) {
+            try {
+                // Configure input.
+                z.next_in = EmptyArrays.EMPTY_BYTES;
+                z.next_in_index = 0;
+                z.avail_in = 0;
 
-            // Configure output.
-            byte[] out = new byte[32]; // room for ADLER32 + ZLIB / CRC32 + GZIP header
-            z.next_out = out;
-            z.next_out_index = 0;
-            z.avail_out = out.length;
+                // Configure output.
+                byte[] out = new byte[32]; // room for ADLER32 + ZLIB / CRC32 + GZIP header
+                z.next_out = out;
+                z.next_out_index = 0;
+                z.avail_out = out.length;
 
-            // Write the ADLER32 checksum (stream footer).
-            int resultCode = z.deflate(JZlib.Z_FINISH);
-            if (resultCode != JZlib.Z_OK && resultCode != JZlib.Z_STREAM_END) {
-                promise.setFailure(ZlibUtil.deflaterException(z, "compression failure", resultCode));
-                return promise;
-            } else if (z.next_out_index != 0) {
-                footer = Unpooled.wrappedBuffer(out, 0, z.next_out_index);
-            } else {
-                footer = Unpooled.EMPTY_BUFFER;
+                // Write the ADLER32 checksum (stream footer).
+                int resultCode = z.deflate(JZlib.Z_FINISH);
+                if (resultCode != JZlib.Z_OK && resultCode != JZlib.Z_STREAM_END) {
+                    promise.setFailure(ZlibUtil.deflaterException(z, "compression failure", resultCode));
+                    return promise;
+                } else if (z.next_out_index != 0) {
+                    footer = Unpooled.wrappedBuffer(out, 0, z.next_out_index);
+                } else {
+                    footer = Unpooled.EMPTY_BUFFER;
+                }
+            } finally {
+                z.deflateEnd();
+
+                // Deference the external references explicitly to tell the VM that
+                // the allocated byte arrays are temporary so that the call stack
+                // can be utilized.
+                // I'm not sure if the modern VMs do this optimization though.
+                z.next_in = null;
+                z.next_out = null;
             }
-        } finally {
-            z.deflateEnd();
-
-            // Deference the external references explicitly to tell the VM that
-            // the allocated byte arrays are temporary so that the call stack
-            // can be utilized.
-            // I'm not sure if the modern VMs do this optimization though.
-            z.next_in = null;
-            z.next_out = null;
         }
+
         return ctx.writeAndFlush(footer, promise);
     }
 

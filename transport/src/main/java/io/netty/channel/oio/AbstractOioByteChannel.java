@@ -19,9 +19,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelMetadata;
 import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPipeline;
-import io.netty.channel.EventLoop;
 import io.netty.channel.FileRegion;
 import io.netty.channel.socket.ChannelInputShutdownEvent;
 import io.netty.util.internal.StringUtil;
@@ -39,8 +37,8 @@ public abstract class AbstractOioByteChannel extends AbstractOioChannel {
     /**
      * @see AbstractOioByteChannel#AbstractOioByteChannel(Channel)
      */
-    protected AbstractOioByteChannel(Channel parent, EventLoop eventLoop) {
-        super(parent, eventLoop);
+    protected AbstractOioByteChannel(Channel parent) {
+        super(parent);
     }
 
     protected boolean isInputShutdown() {
@@ -154,24 +152,30 @@ public abstract class AbstractOioByteChannel extends AbstractOioChannel {
     }
 
     @Override
-    protected void doWrite(ChannelOutboundBuffer in) throws Exception {
+    protected int doWrite(Object[] msgs, int msgsLength, int startIndex) throws Exception {
+        int writeIndex = startIndex;
         for (;;) {
-            Object msg = in.current(false);
-
+            if (writeIndex >= msgsLength) {
+                break;
+            }
+            Object msg = msgs[writeIndex];
             if (msg instanceof ByteBuf) {
                 ByteBuf buf = (ByteBuf) msg;
                 while (buf.isReadable()) {
                     doWriteBytes(buf);
                 }
-                in.remove();
+                buf.release();
+                writeIndex++;
             } else if (msg instanceof FileRegion) {
-                doWriteFileRegion((FileRegion) msg);
-                in.remove();
+                FileRegion region = (FileRegion) msg;
+                doWriteFileRegion(region);
+                region.release();
+                writeIndex++;
             } else {
-                in.remove(new UnsupportedOperationException(
-                        "unsupported message type: " + StringUtil.simpleClassName(msg)));
+                throw new UnsupportedOperationException("unsupported message type: " + StringUtil.simpleClassName(msg));
             }
         }
+        return writeIndex - startIndex;
     }
 
     /**
@@ -185,7 +189,7 @@ public abstract class AbstractOioByteChannel extends AbstractOioChannel {
      * @param buf           the {@link ByteBuf} into which the read bytes will be written
      * @return amount       the number of bytes read. This may return a negative amount if the underlying
      *                      Socket was closed
-     * @throws Exception    is thrown if an error occurred
+     * @throws Exception    is thrown if an error accoured
      */
     protected abstract int doReadBytes(ByteBuf buf) throws Exception;
 
@@ -193,7 +197,7 @@ public abstract class AbstractOioByteChannel extends AbstractOioChannel {
      * Write the data which is hold by the {@link ByteBuf} to the underlying Socket.
      *
      * @param buf           the {@link ByteBuf} which holds the data to transfer
-     * @throws Exception    is thrown if an error occurred
+     * @throws Exception    is thrown if an error accoured
      */
     protected abstract void doWriteBytes(ByteBuf buf) throws Exception;
 
@@ -201,7 +205,7 @@ public abstract class AbstractOioByteChannel extends AbstractOioChannel {
      * Write the data which is hold by the {@link FileRegion} to the underlying Socket.
      *
      * @param region        the {@link FileRegion} which holds the data to transfer
-     * @throws Exception    is thrown if an error occurred
+     * @throws Exception    is thrown if an error accoured
      */
     protected abstract void doWriteFileRegion(FileRegion region) throws Exception;
 }

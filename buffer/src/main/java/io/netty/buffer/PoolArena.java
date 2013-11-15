@@ -233,8 +233,8 @@ abstract class PoolArena<T> {
         allocate(parent.threadCache.get(), buf, newCapacity);
         if (newCapacity > oldCapacity) {
             memoryCopy(
-                    oldMemory, oldOffset,
-                    buf.memory, buf.offset, oldCapacity);
+                    oldMemory, oldOffset + readerIndex,
+                    buf.memory, buf.offset + readerIndex, writerIndex - readerIndex);
         } else if (newCapacity < oldCapacity) {
             if (readerIndex < newCapacity) {
                 if (writerIndex > newCapacity) {

@@ -200,9 +200,12 @@ public final class GlobalEventExecutor extends AbstractEventExecutor {
             throw new NullPointerException("task");
         }
 
-        addTask(task);
-        if (!inEventLoop()) {
+        boolean inEventLoop = inEventLoop();
+        if (inEventLoop) {
+            addTask(task);
+        } else {
             startThread();
+            addTask(task);
         }
     }
 

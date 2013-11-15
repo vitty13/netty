@@ -25,24 +25,16 @@ import java.util.Map;
 public abstract class DefaultHttpMessage extends DefaultHttpObject implements HttpMessage {
 
     private HttpVersion version;
-    private final HttpHeaders headers;
+    private final HttpHeaders headers = new DefaultHttpHeaders();
 
     /**
      * Creates a new instance.
      */
     protected DefaultHttpMessage(final HttpVersion version) {
-        this(version, true);
-    }
-
-    /**
-     * Creates a new instance.
-     */
-    protected DefaultHttpMessage(final HttpVersion version, boolean validateHeaders) {
         if (version == null) {
             throw new NullPointerException("version");
         }
         this.version = version;
-        headers = new DefaultHttpHeaders(validateHeaders);
     }
 
     @Override
@@ -58,7 +50,7 @@ public abstract class DefaultHttpMessage extends DefaultHttpObject implements Ht
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder();
-        buf.append(StringUtil.simpleClassName(this));
+        buf.append(getClass().getSimpleName());
         buf.append("(version: ");
         buf.append(getProtocolVersion().text());
         buf.append(", keepAlive: ");
@@ -74,9 +66,6 @@ public abstract class DefaultHttpMessage extends DefaultHttpObject implements Ht
 
     @Override
     public HttpMessage setProtocolVersion(HttpVersion version) {
-        if (version == null) {
-            throw new NullPointerException("version");
-        }
         this.version = version;
         return this;
     }

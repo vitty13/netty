@@ -20,9 +20,7 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelConfig;
 import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPipeline;
-import io.netty.channel.EventLoop;
 import io.netty.channel.FileRegion;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.channel.socket.ChannelInputShutdownEvent;
@@ -36,7 +34,6 @@ import java.nio.channels.SelectionKey;
  * {@link AbstractNioChannel} base class for {@link Channel}s that operate on bytes.
  */
 public abstract class AbstractNioByteChannel extends AbstractNioChannel {
-    private Runnable flushTask;
 
     /**
      * Create a new instance
@@ -44,8 +41,8 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
      * @param parent            the parent {@link Channel} by which this instance was created. May be {@code null}
      * @param ch                the underlying {@link SelectableChannel} on which it operates
      */
-    protected AbstractNioByteChannel(Channel parent, EventLoop eventLoop, SelectableChannel ch) {
-        super(parent, eventLoop, ch, SelectionKey.OP_READ);
+    protected AbstractNioByteChannel(Channel parent, SelectableChannel ch) {
+        super(parent, ch, SelectionKey.OP_READ);
     }
 
     @Override
@@ -56,197 +53,162 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
     private final class NioByteUnsafe extends AbstractNioUnsafe {
         private RecvByteBufAllocator.Handle allocHandle;
 
-        private void removeReadOp() {
-            SelectionKey key = selectionKey();
-            int interestOps = key.interestOps();
-            if ((interestOps & readInterestOp) != 0) {
-                // only remove readInterestOp if needed
-                key.interestOps(interestOps & ~readInterestOp);
-            }
-        }
-
-        private void closeOnRead(ChannelPipeline pipeline) {
-            SelectionKey key = selectionKey();
-            setInputShutdown();
-            if (isOpen()) {
-                if (Boolean.TRUE.equals(config().getOption(ChannelOption.ALLOW_HALF_CLOSURE))) {
-                    key.interestOps(key.interestOps() & ~readInterestOp);
-                    pipeline.fireUserEventTriggered(ChannelInputShutdownEvent.INSTANCE);
-                } else {
-                    close(voidPromise());
-                }
-            }
-        }
-
-        private void handleReadException(ChannelPipeline pipeline, ByteBuf byteBuf, Throwable cause, boolean close) {
-            if (byteBuf != null) {
-                if (byteBuf.isReadable()) {
-                    pipeline.fireChannelRead(byteBuf);
-                } else {
-                    byteBuf.release();
-                }
-            }
-            pipeline.fireChannelReadComplete();
-            pipeline.fireExceptionCaught(cause);
-            if (close || cause instanceof IOException) {
-                closeOnRead(pipeline);
-            }
-        }
-
         @Override
         public void read() {
+            assert eventLoop().inEventLoop();
+            final SelectionKey key = selectionKey();
             final ChannelConfig config = config();
+            if (!config.isAutoRead()) {
+                int interestOps = key.interestOps();
+                if ((interestOps & readInterestOp) != 0) {
+                    // only remove readInterestOp if needed
+                    key.interestOps(interestOps & ~readInterestOp);
+                }
+            }
+
             final ChannelPipeline pipeline = pipeline();
-            final ByteBufAllocator allocator = config.getAllocator();
-            final int maxMessagesPerRead = config.getMaxMessagesPerRead();
+
             RecvByteBufAllocator.Handle allocHandle = this.allocHandle;
             if (allocHandle == null) {
                 this.allocHandle = allocHandle = config.getRecvByteBufAllocator().newHandle();
             }
-            if (!config.isAutoRead()) {
-                removeReadOp();
-            }
 
+            final ByteBufAllocator allocator = config.getAllocator();
+            final int maxMessagesPerRead = config.getMaxMessagesPerRead();
+
+            boolean closed = false;
+            Throwable exception = null;
             ByteBuf byteBuf = null;
             int messages = 0;
-            boolean close = false;
             try {
-                do {
+                for (;;) {
                     byteBuf = allocHandle.allocate(allocator);
                     int localReadAmount = doReadBytes(byteBuf);
-                    if (localReadAmount <= 0) {
-                        // not was read release the buffer
+                    if (localReadAmount == 0) {
                         byteBuf.release();
-                        close = localReadAmount < 0;
+                        byteBuf = null;
                         break;
                     }
+                    if (localReadAmount < 0) {
+                        closed = true;
+                        byteBuf.release();
+                        byteBuf = null;
+                        break;
+                    }
+
                     pipeline.fireChannelRead(byteBuf);
-                    byteBuf = null;
                     allocHandle.record(localReadAmount);
-                } while (++ messages < maxMessagesPerRead);
+                    byteBuf = null;
+                    if (++ messages == maxMessagesPerRead) {
+                        break;
+                    }
+                }
+            } catch (Throwable t) {
+                exception = t;
+            } finally {
+                if (byteBuf != null) {
+                    if (byteBuf.isReadable()) {
+                        pipeline.fireChannelRead(byteBuf);
+                    } else {
+                        byteBuf.release();
+                    }
+                }
 
                 pipeline.fireChannelReadComplete();
 
-                if (close) {
-                    closeOnRead(pipeline);
-                    close = false;
+                if (exception != null) {
+                    if (exception instanceof IOException) {
+                        closed = true;
+                    }
+
+                    pipeline().fireExceptionCaught(exception);
                 }
-            } catch (Throwable t) {
-                handleReadException(pipeline, byteBuf, t, close);
+
+                if (closed) {
+                    setInputShutdown();
+                    if (isOpen()) {
+                        if (Boolean.TRUE.equals(config().getOption(ChannelOption.ALLOW_HALF_CLOSURE))) {
+                            key.interestOps(key.interestOps() & ~readInterestOp);
+                            pipeline.fireUserEventTriggered(ChannelInputShutdownEvent.INSTANCE);
+                        } else {
+                            close(voidPromise());
+                        }
+                    }
+                }
             }
         }
     }
 
     @Override
-    protected void doWrite(ChannelOutboundBuffer in) throws Exception {
-        int writeSpinCount = -1;
-
+    protected int doWrite(Object[] msgs, int msgsLength, int startIndex) throws Exception {
+        int writeIndex = startIndex;
         for (;;) {
-            Object msg = in.current(true);
-            if (msg == null) {
-                // Wrote all messages.
-                clearOpWrite();
+            if (writeIndex >= msgsLength) {
                 break;
             }
-
+            Object msg = msgs[writeIndex];
             if (msg instanceof ByteBuf) {
                 ByteBuf buf = (ByteBuf) msg;
-                int readableBytes = buf.readableBytes();
-                if (readableBytes == 0) {
-                    in.remove();
+                if (!buf.isReadable()) {
+                    buf.release();
+                    writeIndex++;
                     continue;
                 }
-
-                boolean setOpWrite = false;
                 boolean done = false;
-                long flushedAmount = 0;
-                if (writeSpinCount == -1) {
-                    writeSpinCount = config().getWriteSpinCount();
-                }
-                for (int i = writeSpinCount - 1; i >= 0; i --) {
-                    int localFlushedAmount = doWriteBytes(buf);
+                for (int i = config().getWriteSpinCount() - 1; i >= 0; i --) {
+                    int localFlushedAmount = doWriteBytes(buf, i == 0);
                     if (localFlushedAmount == 0) {
-                        setOpWrite = true;
                         break;
                     }
 
-                    flushedAmount += localFlushedAmount;
                     if (!buf.isReadable()) {
                         done = true;
                         break;
                     }
                 }
 
-                in.progress(flushedAmount);
-
                 if (done) {
-                    in.remove();
+                    buf.release();
+                    writeIndex++;
                 } else {
-                    incompleteWrite(setOpWrite);
                     break;
                 }
             } else if (msg instanceof FileRegion) {
                 FileRegion region = (FileRegion) msg;
-                boolean setOpWrite = false;
                 boolean done = false;
-                long flushedAmount = 0;
-                if (writeSpinCount == -1) {
-                    writeSpinCount = config().getWriteSpinCount();
-                }
-                for (int i = writeSpinCount - 1; i >= 0; i --) {
-                    long localFlushedAmount = doWriteFileRegion(region);
+                for (int i = config().getWriteSpinCount() - 1; i >= 0; i --) {
+                    long localFlushedAmount = doWriteFileRegion(region, i == 0);
                     if (localFlushedAmount == 0) {
-                        setOpWrite = true;
                         break;
                     }
-
-                    flushedAmount += localFlushedAmount;
                     if (region.transfered() >= region.count()) {
                         done = true;
                         break;
                     }
                 }
 
-                in.progress(flushedAmount);
-
                 if (done) {
-                    in.remove();
+                    region.release();
+                    writeIndex++;
                 } else {
-                    incompleteWrite(setOpWrite);
                     break;
                 }
             } else {
                 throw new UnsupportedOperationException("unsupported message type: " + StringUtil.simpleClassName(msg));
             }
         }
-    }
-
-    protected final void incompleteWrite(boolean setOpWrite) {
-        // Did not write completely.
-        if (setOpWrite) {
-            setOpWrite();
-        } else {
-            // Schedule flush again later so other tasks can be picked up in the meantime
-            Runnable flushTask = this.flushTask;
-            if (flushTask == null) {
-                flushTask = this.flushTask = new Runnable() {
-                    @Override
-                    public void run() {
-                        flush();
-                    }
-                };
-            }
-            eventLoop().execute(flushTask);
-        }
+        return writeIndex - startIndex;
     }
 
     /**
      * Write a {@link FileRegion}
      *
      * @param region        the {@link FileRegion} from which the bytes should be written
+     * @param lastSpin      {@code true} if this is the last write try
      * @return amount       the amount of written bytes
+     * @throws Exception    thrown if an error accour
      */
-    protected abstract long doWriteFileRegion(FileRegion region) throws Exception;
+    protected abstract long doWriteFileRegion(FileRegion region, boolean lastSpin) throws Exception;
 
     /**
      * Read bytes into the given {@link ByteBuf} and return the amount.
@@ -256,23 +218,32 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
     /**
      * Write bytes form the given {@link ByteBuf} to the underlying {@link java.nio.channels.Channel}.
      * @param buf           the {@link ByteBuf} from which the bytes should be written
+     * @param lastSpin      {@code true} if this is the last write try
      * @return amount       the amount of written bytes
+     * @throws Exception    thrown if an error accour
      */
-    protected abstract int doWriteBytes(ByteBuf buf) throws Exception;
+    protected abstract int doWriteBytes(ByteBuf buf, boolean lastSpin) throws Exception;
 
-    protected final void setOpWrite() {
-        final SelectionKey key = selectionKey();
-        final int interestOps = key.interestOps();
-        if ((interestOps & SelectionKey.OP_WRITE) == 0) {
-            key.interestOps(interestOps | SelectionKey.OP_WRITE);
-        }
-    }
-
-    protected final void clearOpWrite() {
-        final SelectionKey key = selectionKey();
-        final int interestOps = key.interestOps();
-        if ((interestOps & SelectionKey.OP_WRITE) != 0) {
-            key.interestOps(interestOps & ~SelectionKey.OP_WRITE);
+    protected final void updateOpWrite(long expectedWrittenBytes, long writtenBytes, boolean lastSpin) {
+        if (writtenBytes >= expectedWrittenBytes) {
+            final SelectionKey key = selectionKey();
+            final int interestOps = key.interestOps();
+            // Wrote the outbound buffer completely - clear OP_WRITE.
+            if ((interestOps & SelectionKey.OP_WRITE) != 0) {
+                key.interestOps(interestOps & ~SelectionKey.OP_WRITE);
+            }
+        } else {
+            // 1) Wrote nothing: buffer is full obviously - set OP_WRITE
+            // 2) Wrote partial data:
+            //    a) lastSpin is false: no need to set OP_WRITE because the caller will try again immediately.
+            //    b) lastSpin is true: set OP_WRITE because the caller will not try again.
+            if (writtenBytes == 0 || lastSpin) {
+                final SelectionKey key = selectionKey();
+                final int interestOps = key.interestOps();
+                if ((interestOps & SelectionKey.OP_WRITE) == 0) {
+                    key.interestOps(interestOps | SelectionKey.OP_WRITE);
+                }
+            }
         }
     }
 }

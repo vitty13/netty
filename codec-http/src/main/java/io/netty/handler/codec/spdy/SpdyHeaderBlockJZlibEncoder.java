@@ -31,7 +31,7 @@ class SpdyHeaderBlockJZlibEncoder extends SpdyHeaderBlockRawEncoder {
     private boolean finished;
 
     public SpdyHeaderBlockJZlibEncoder(
-            SpdyVersion version, int compressionLevel, int windowBits, int memLevel) {
+            int version, int compressionLevel, int windowBits, int memLevel) {
         super(version);
         if (compressionLevel < 0 || compressionLevel > 9) {
             throw new IllegalArgumentException(
@@ -52,7 +52,11 @@ class SpdyHeaderBlockJZlibEncoder extends SpdyHeaderBlockRawEncoder {
             throw new CompressionException(
                     "failed to initialize an SPDY header block deflater: " + resultCode);
         } else {
-            resultCode = z.deflateSetDictionary(SPDY_DICT, SPDY_DICT.length);
+            if (version < 3) {
+                resultCode = z.deflateSetDictionary(SPDY2_DICT, SPDY2_DICT.length);
+            } else {
+                resultCode = z.deflateSetDictionary(SPDY_DICT, SPDY_DICT.length);
+            }
             if (resultCode != JZlib.Z_OK) {
                 throw new CompressionException(
                         "failed to set the SPDY dictionary: " + resultCode);
@@ -94,7 +98,7 @@ class SpdyHeaderBlockJZlibEncoder extends SpdyHeaderBlockRawEncoder {
     }
 
     @Override
-    public ByteBuf encode(ChannelHandlerContext ctx, SpdyHeadersFrame frame) throws Exception {
+    public synchronized ByteBuf encode(ChannelHandlerContext ctx, SpdyHeadersFrame frame) throws Exception {
         if (frame == null) {
             throw new IllegalArgumentException("frame");
         }
@@ -115,7 +119,7 @@ class SpdyHeaderBlockJZlibEncoder extends SpdyHeaderBlockRawEncoder {
     }
 
     @Override
-    public void end() {
+    public synchronized void end() {
         if (finished) {
             return;
         }

@@ -119,15 +119,18 @@ public interface ChannelConfig {
     ChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis);
 
     /**
-     * Returns the maximum number of messages to read per read loop.
+     * Returns the maximum number of messages in a {@link MessageList} of
      * a {@link ChannelInboundHandler#channelRead(ChannelHandlerContext, Object) channelRead()} event.
-     * If this value is greater than 1, an event loop might attempt to read multiple times to procure multiple messages.
+     * If this value is greater than 1, an event loop might attempt to read multiple times to fill multiple messages
+     * into the {@link MessageList}.
      */
     int getMaxMessagesPerRead();
 
     /**
-     * Sets the maximum number of messages to read per read loop.
-     * If this value is greater than 1, an event loop might attempt to read multiple times to procure multiple messages.
+     * Sets the maximum number of messages in a {@link MessageList} of
+     * a {@link ChannelInboundHandler#channelRead(ChannelHandlerContext, Object) channelRead()} event.
+     * If this value is greater than 1, an event loop might attempt to read multiple times to fill multiple messages
+     * into the {@link MessageList}.
      */
     ChannelConfig setMaxMessagesPerRead(int maxMessagesPerRead);
 
@@ -215,20 +218,8 @@ public interface ChannelConfig {
      * Sets the low water mark of the write buffer.  Once the number of bytes
      * queued in the write buffer exceeded the
      * {@linkplain #setWriteBufferHighWaterMark(int) high water mark} and then
-     * dropped down below this value, {@link Channel#isWritable()} will start to return
+     * dropped down below this value, {@link Channel#isWritable()} will start toreturn
      * {@code true} again.
      */
     ChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
-
-    /**
-     * Returns {@link MessageSizeEstimator} which is used for the channel
-     * to detect the size of a message.
-     */
-    MessageSizeEstimator getMessageSizeEstimator();
-
-    /**
-     * Set the {@link ByteBufAllocator} which is used for the channel
-     * to detect the size of a message.
-     */
-    ChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
 }

@@ -49,7 +49,6 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
     ByteBuf cumulation;
     private boolean singleDecode;
     private boolean decodeWasNull;
-    private boolean first;
 
     protected ByteToMessageDecoder() {
         if (getClass().isAnnotationPresent(Sharable.class)) {
@@ -122,57 +121,64 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (msg instanceof ByteBuf) {
-            RecyclableArrayList out = RecyclableArrayList.newInstance();
-            try {
+        RecyclableArrayList out = RecyclableArrayList.newInstance();
+        try {
+            if (msg instanceof ByteBuf) {
                 ByteBuf data = (ByteBuf) msg;
-                first = cumulation == null;
-                if (first) {
+                if (cumulation == null) {
                     cumulation = data;
-                } else {
-                    if (cumulation.writerIndex() > cumulation.maxCapacity() - data.readableBytes()) {
-                        expandCumulation(ctx, data.readableBytes());
+                    try {
+                        callDecode(ctx, cumulation, out);
+                    } finally {
+                        if (cumulation != null && !cumulation.isReadable()) {
+                            cumulation.release();
+                            cumulation = null;
+                        }
                     }
-                    cumulation.writeBytes(data);
-                    data.release();
+                } else {
+                    try {
+                        if (cumulation.writerIndex() > cumulation.maxCapacity() - data.readableBytes()) {
+                            ByteBuf oldCumulation = cumulation;
+                            cumulation = ctx.alloc().buffer(oldCumulation.readableBytes() + data.readableBytes());
+                            cumulation.writeBytes(oldCumulation);
+                            oldCumulation.release();
+                        }
+                        cumulation.writeBytes(data);
+                        callDecode(ctx, cumulation, out);
+                    } finally {
+                        if (cumulation != null) {
+                            if (!cumulation.isReadable()) {
+                                cumulation.release();
+                                cumulation = null;
+                            } else {
+                                cumulation.discardSomeReadBytes();
+                            }
+                        }
+                        data.release();
+                    }
                 }
-                callDecode(ctx, cumulation, out);
-            } catch (DecoderException e) {
-                throw e;
-            } catch (Throwable t) {
-                throw new DecoderException(t);
-            } finally {
-                if (cumulation != null && !cumulation.isReadable()) {
-                    cumulation.release();
-                    cumulation = null;
-                }
-                int size = out.size();
-                decodeWasNull = size == 0;
-
-                for (int i = 0; i < size; i ++) {
-                    ctx.fireChannelRead(out.get(i));
-                }
-                out.recycle();
+            } else {
+                out.add(msg);
             }
-        } else {
-            ctx.fireChannelRead(msg);
-        }
-    }
+        } catch (DecoderException e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new DecoderException(t);
+        } finally {
+            if (out.isEmpty()) {
+                decodeWasNull = true;
+            }
 
-    private void expandCumulation(ChannelHandlerContext ctx, int readable) {
-        ByteBuf oldCumulation = cumulation;
-        cumulation = ctx.alloc().buffer(oldCumulation.readableBytes() + readable);
-        cumulation.writeBytes(oldCumulation);
-        oldCumulation.release();
+            for (int i = 0; i < out.size(); i ++) {
+                ctx.fireChannelRead(out.get(i));
+            }
+
+            out.recycle();
+        }
     }
 
     @Override
     public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
-        if (cumulation != null && !first) {
-            // discard some bytes if possible to make more room in the
-            // buffer
-            cumulation.discardSomeReadBytes();
-        }
         if (decodeWasNull) {
             decodeWasNull = false;
             if (!ctx.channel().config().isAutoRead()) {
@@ -201,12 +207,11 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                 cumulation.release();
                 cumulation = null;
             }
-            int size = out.size();
-            for (int i = 0; i < size; i ++) {
+
+            for (int i = 0; i < out.size(); i ++) {
                 ctx.fireChannelRead(out.get(i));
             }
             ctx.fireChannelInactive();
-            out.recycle();
         }
     }
 
@@ -224,15 +229,6 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                 int outSize = out.size();
                 int oldInputLength = in.readableBytes();
                 decode(ctx, in, out);
-
-                // Check if this handler was removed before continuing the loop.
-                // If it was removed, it is not safe to continue to operate on the buffer.
-                //
-                // See https://github.com/netty/netty/issues/1664
-                if (ctx.isRemoved()) {
-                    break;
-                }
-
                 if (outSize == out.size()) {
                     if (oldInputLength == in.readableBytes()) {
                         break;

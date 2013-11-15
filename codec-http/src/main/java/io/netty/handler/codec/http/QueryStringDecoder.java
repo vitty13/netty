@@ -113,7 +113,8 @@ public class QueryStringDecoder {
                     "maxParams: " + maxParams + " (expected: a positive integer)");
         }
 
-        this.uri = uri;
+        // http://en.wikipedia.org/wiki/Query_string
+        this.uri = uri.replace(';', '&');
         this.charset = charset;
         this.maxParams = maxParams;
         this.hasPath = hasPath;
@@ -159,8 +160,10 @@ public class QueryStringDecoder {
             hasPath = false;
         }
         // Also take care of cut of things like "http://localhost"
-        this.uri = rawPath + '?' + uri.getRawQuery();
+        String newUri = rawPath + '?' + uri.getRawQuery();
 
+        // http://en.wikipedia.org/wiki/Query_string
+        this.uri = newUri.replace(';', '&');
         this.charset = charset;
         this.maxParams = maxParams;
     }
@@ -219,8 +222,7 @@ public class QueryStringDecoder {
                     name = decodeComponent(s.substring(pos, i), charset);
                 }
                 pos = i + 1;
-            // http://www.w3.org/TR/html401/appendix/notes.html#h-B.2.2
-            } else if (c == '&' || c == ';') {
+            } else if (c == '&') {
                 if (name == null && pos != i) {
                     // We haven't seen an `=' so far but moved forward.
                     // Must be a param of the form '&a&' so add it with

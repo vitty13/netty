@@ -16,23 +16,19 @@
 package io.netty.channel.socket.nio;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufHolder;
 import io.netty.channel.AddressedEnvelope;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelMetadata;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPromise;
-import io.netty.channel.DefaultAddressedEnvelope;
-import io.netty.channel.EventLoop;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.channel.nio.AbstractNioMessageChannel;
 import io.netty.channel.socket.DatagramChannelConfig;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.InternetProtocolFamily;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.StringUtil;
 
@@ -97,23 +93,23 @@ public final class NioDatagramChannel
     /**
      * Create a new instance which will use the Operation Systems default {@link InternetProtocolFamily}.
      */
-    public NioDatagramChannel(EventLoop eventLoop) {
-        this(eventLoop, newSocket());
+    public NioDatagramChannel() {
+        this(newSocket());
     }
 
     /**
      * Create a new instance using the given {@link InternetProtocolFamily}. If {@code null} is used it will depend
      * on the Operation Systems default which will be chosen.
      */
-    public NioDatagramChannel(EventLoop eventLoop, InternetProtocolFamily ipFamily) {
-        this(eventLoop, newSocket(ipFamily));
+    public NioDatagramChannel(InternetProtocolFamily ipFamily) {
+        this(newSocket(ipFamily));
     }
 
     /**
      * Create a new instance from the given {@link DatagramChannel}.
      */
-    public NioDatagramChannel(EventLoop eventLoop, DatagramChannel socket) {
-        super(null, eventLoop, socket, SelectionKey.OP_READ);
+    public NioDatagramChannel(DatagramChannel socket) {
+        super(null, socket, SelectionKey.OP_READ);
         config = new NioDatagramChannelConfig(this, socket);
     }
 
@@ -130,9 +126,7 @@ public final class NioDatagramChannel
     @Override
     public boolean isActive() {
         DatagramChannel ch = javaChannel();
-        return ch.isOpen() && (
-                (config.getOption(ChannelOption.DATAGRAM_CHANNEL_ACTIVE_ON_REGISTRATION) && isRegistered())
-                || ch.socket().isBound());
+        return ch.isOpen() && ch.socket().isBound();
     }
 
     @Override
@@ -205,14 +199,14 @@ public final class NioDatagramChannel
         ByteBuf data = allocHandle.allocate(config.getAllocator());
         boolean free = true;
         try {
-            ByteBuffer nioData = data.internalNioBuffer(data.writerIndex(), data.writableBytes());
-            int pos = nioData.position();
+            ByteBuffer nioData = data.nioBuffer(data.writerIndex(), data.writableBytes());
+
             InetSocketAddress remoteAddress = (InetSocketAddress) ch.receive(nioData);
             if (remoteAddress == null) {
                 return 0;
             }
 
-            int readBytes = nioData.position() - pos;
+            int readBytes = nioData.position();
             data.writerIndex(data.writerIndex() + readBytes);
             allocHandle.record(readBytes);
 
@@ -230,17 +224,18 @@ public final class NioDatagramChannel
     }
 
     @Override
-    protected boolean doWriteMessage(Object msg, ChannelOutboundBuffer in) throws Exception {
+    protected int doWriteMessages(Object[] msgs, int msgsLength, int startIndex, boolean lastSpin) throws Exception {
+        final Object o = msgs[startIndex];
         final Object m;
+        final ByteBuf data;
         final SocketAddress remoteAddress;
-        ByteBuf data;
-        if (msg instanceof AddressedEnvelope) {
+        if (o instanceof AddressedEnvelope) {
             @SuppressWarnings("unchecked")
-            AddressedEnvelope<Object, SocketAddress> envelope = (AddressedEnvelope<Object, SocketAddress>) msg;
+            AddressedEnvelope<Object, SocketAddress> envelope = (AddressedEnvelope<Object, SocketAddress>) o;
             remoteAddress = envelope.recipient();
             m = envelope.content();
         } else {
-            m = msg;
+            m = o;
             remoteAddress = null;
         }
 
@@ -249,27 +244,17 @@ public final class NioDatagramChannel
         } else if (m instanceof ByteBuf) {
             data = (ByteBuf) m;
         } else {
-            throw new UnsupportedOperationException("unsupported message type: " + StringUtil.simpleClassName(msg));
+            throw new UnsupportedOperationException("unsupported message type: " + StringUtil.simpleClassName(0));
         }
 
         int dataLen = data.readableBytes();
-        if (dataLen == 0) {
-            return true;
-        }
-
-        ByteBufAllocator alloc = alloc();
-        boolean needsCopy = data.nioBufferCount() != 1;
-        if (!needsCopy) {
-            if (!data.isDirect() && alloc.isDirectBufferPooled()) {
-                needsCopy = true;
-            }
-        }
         ByteBuffer nioData;
-        if (!needsCopy) {
+        if (data.nioBufferCount() == 1) {
             nioData = data.nioBuffer();
         } else {
-            data = alloc.directBuffer(dataLen).writeBytes(data);
-            nioData = data.nioBuffer();
+            nioData = ByteBuffer.allocate(dataLen);
+            data.getBytes(data.readerIndex(), nioData);
+            nioData.flip();
         }
 
         final int writtenBytes;
@@ -279,24 +264,32 @@ public final class NioDatagramChannel
             writtenBytes = javaChannel().write(nioData);
         }
 
-        boolean done =  writtenBytes > 0;
-        if (needsCopy) {
-            // This means we have allocated a new buffer and need to store it back so we not need to allocate it again
-            // later
-            if (remoteAddress == null) {
-                // remoteAddress is null which means we can handle it as ByteBuf directly
-                in.current(data);
-            } else {
-                if (!done) {
-                    // store it back with all the needed informations
-                    in.current(new DefaultAddressedEnvelope<ByteBuf, SocketAddress>(data, remoteAddress));
-                } else {
-                    // Just store back the new create buffer so it is cleaned up once in.remove() is called.
-                    in.current(data);
+        final SelectionKey key = selectionKey();
+        final int interestOps = key.interestOps();
+        if (writtenBytes <= 0 && dataLen > 0) {
+            // Did not write a packet.
+            // 1) If 'lastSpin' is false, the caller will call this method again real soon.
+            //    - Do not update OP_WRITE.
+            // 2) If 'lastSpin' is true, the caller will not retry.
+            //    - Set OP_WRITE so that the event loop calls flushForcibly() later.
+            if (lastSpin) {
+                if ((interestOps & SelectionKey.OP_WRITE) == 0) {
+                    key.interestOps(interestOps | SelectionKey.OP_WRITE);
                 }
             }
+            return 0;
         }
-        return done;
+
+        // Wrote a packet - free the message.
+        ReferenceCountUtil.release(o);
+
+        if (startIndex + 1 == msgsLength) {
+            // Wrote the outbound buffer completely - clear OP_WRITE.
+            if ((interestOps & SelectionKey.OP_WRITE) != 0) {
+                key.interestOps(interestOps & ~SelectionKey.OP_WRITE);
+            }
+        }
+        return 1;
     }
 
     @Override

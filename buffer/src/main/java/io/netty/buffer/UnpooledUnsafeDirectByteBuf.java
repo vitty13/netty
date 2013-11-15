@@ -145,8 +145,8 @@ public class UnpooledUnsafeDirectByteBuf extends AbstractReferenceCountedByteBuf
         if (newCapacity > oldCapacity) {
             ByteBuffer oldBuffer = buffer;
             ByteBuffer newBuffer = ByteBuffer.allocateDirect(newCapacity);
-            oldBuffer.position(0).limit(oldBuffer.capacity());
-            newBuffer.position(0).limit(oldBuffer.capacity());
+            oldBuffer.position(readerIndex).limit(writerIndex);
+            newBuffer.position(readerIndex).limit(writerIndex);
             newBuffer.put(oldBuffer);
             newBuffer.clear();
             setByteBuffer(newBuffer);
@@ -274,33 +274,15 @@ public class UnpooledUnsafeDirectByteBuf extends AbstractReferenceCountedByteBuf
 
     @Override
     public ByteBuf getBytes(int index, ByteBuffer dst) {
-        getBytes(index, dst, false);
-        return this;
-    }
-
-    private void getBytes(int index, ByteBuffer dst, boolean internal) {
         checkIndex(index);
         if (dst == null) {
             throw new NullPointerException("dst");
         }
 
         int bytesToCopy = Math.min(capacity() - index, dst.remaining());
-        ByteBuffer tmpBuf;
-        if (internal) {
-            tmpBuf = internalNioBuffer();
-        } else {
-            tmpBuf = buffer.duplicate();
-        }
+        ByteBuffer tmpBuf = internalNioBuffer();
         tmpBuf.clear().position(index).limit(index + bytesToCopy);
         dst.put(tmpBuf);
-    }
-
-    @Override
-    public ByteBuf readBytes(ByteBuffer dst) {
-        int length = dst.remaining();
-        checkReadableBytes(length);
-        getBytes(readerIndex, dst, true);
-        readerIndex += length;
         return this;
     }
 
@@ -389,31 +371,14 @@ public class UnpooledUnsafeDirectByteBuf extends AbstractReferenceCountedByteBuf
 
     @Override
     public int getBytes(int index, GatheringByteChannel out, int length) throws IOException {
-        return getBytes(index, out, length, false);
-    }
-
-    private int getBytes(int index, GatheringByteChannel out, int length, boolean internal) throws IOException {
         ensureAccessible();
         if (length == 0) {
             return 0;
         }
 
-        ByteBuffer tmpBuf;
-        if (internal) {
-            tmpBuf = internalNioBuffer();
-        } else {
-            tmpBuf = buffer.duplicate();
-        }
+        ByteBuffer tmpBuf = internalNioBuffer();
         tmpBuf.clear().position(index).limit(index + length);
         return out.write(tmpBuf);
-    }
-
-    @Override
-    public int readBytes(GatheringByteChannel out, int length) throws IOException {
-        checkReadableBytes(length);
-        int readBytes = getBytes(readerIndex, out, length, true);
-        readerIndex += readBytes;
-        return readBytes;
     }
 
     @Override
@@ -430,10 +395,10 @@ public class UnpooledUnsafeDirectByteBuf extends AbstractReferenceCountedByteBuf
     @Override
     public int setBytes(int index, ScatteringByteChannel in, int length) throws IOException {
         ensureAccessible();
-        ByteBuffer tmpBuf = internalNioBuffer();
-        tmpBuf.clear().position(index).limit(index + length);
+        ByteBuffer tmpNioBuf = internalNioBuffer();
+        tmpNioBuf.clear().position(index).limit(index + length);
         try {
-            return in.read(tmpBuf);
+            return in.read(tmpNioBuf);
         } catch (ClosedChannelException e) {
             return -1;
         }
@@ -474,11 +439,6 @@ public class UnpooledUnsafeDirectByteBuf extends AbstractReferenceCountedByteBuf
     }
 
     @Override
-    public ByteBuffer nioBuffer(int index, int length) {
-        return ((ByteBuffer) buffer.duplicate().position(index).limit(index + length)).slice();
-    }
-
-    @Override
     protected void deallocate() {
         ByteBuffer buffer = this.buffer;
         if (buffer == null) {
@@ -490,10 +450,7 @@ public class UnpooledUnsafeDirectByteBuf extends AbstractReferenceCountedByteBuf
         if (!doNotFree) {
             PlatformDependent.freeDirectBuffer(buffer);
         }
-
-        if (leak != null) {
-            leak.close();
-        }
+        leak.close();
     }
 
     @Override

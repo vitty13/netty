@@ -17,7 +17,7 @@ package io.netty.channel;
 
 /**
  * Special {@link ChannelException} which will be thrown by {@link EventLoop} and {@link EventLoopGroup}
- * implementations when an error occurs.
+ * implementations when an error accours.
  */
 public class EventLoopException extends ChannelException {
 

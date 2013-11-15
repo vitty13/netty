@@ -24,6 +24,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import static io.netty.buffer.Unpooled.*;
+import static org.hamcrest.core.Is.*;
 import static org.junit.Assert.*;
 
 public class LengthFieldPrependerTest {
@@ -39,42 +40,21 @@ public class LengthFieldPrependerTest {
     public void testPrependLength() throws Exception {
         final EmbeddedChannel ch = new EmbeddedChannel(new LengthFieldPrepender(4));
         ch.writeOutbound(msg);
-        ByteBuf buf = (ByteBuf) ch.readOutbound();
-        assertEquals(4, buf.readableBytes());
-        assertEquals(msg.readableBytes(), buf.readInt());
-        buf.release();
-
-        buf = (ByteBuf) ch.readOutbound();
-        assertSame(buf, msg);
-        buf.release();
+        assertThat((ByteBuf) ch.readOutbound(), is(wrappedBuffer(new byte[]{0, 0, 0, 1, 'A'})));
     }
 
     @Test
     public void testPrependLengthIncludesLengthFieldLength() throws Exception {
         final EmbeddedChannel ch = new EmbeddedChannel(new LengthFieldPrepender(4, true));
         ch.writeOutbound(msg);
-        ByteBuf buf = (ByteBuf) ch.readOutbound();
-        assertEquals(4, buf.readableBytes());
-        assertEquals(5, buf.readInt());
-        buf.release();
-
-        buf = (ByteBuf) ch.readOutbound();
-        assertSame(buf, msg);
-        buf.release();
+        assertThat((ByteBuf) ch.readOutbound(), is(wrappedBuffer(new byte[]{0, 0, 0, 5, 'A'})));
     }
 
     @Test
     public void testPrependAdjustedLength() throws Exception {
         final EmbeddedChannel ch = new EmbeddedChannel(new LengthFieldPrepender(4, -1));
         ch.writeOutbound(msg);
-        ByteBuf buf = (ByteBuf) ch.readOutbound();
-        assertEquals(4, buf.readableBytes());
-        assertEquals(msg.readableBytes() - 1, buf.readInt());
-        buf.release();
-
-        buf = (ByteBuf) ch.readOutbound();
-        assertSame(buf, msg);
-        buf.release();
+        assertThat((ByteBuf) ch.readOutbound(), is(wrappedBuffer(new byte[]{0, 0, 0, 0, 'A'})));
     }
 
     @Test

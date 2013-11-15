@@ -21,7 +21,6 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelConfig;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelOption;
-import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
 
 /**
@@ -129,15 +128,6 @@ public interface UdtChannelConfig extends ChannelConfig {
 
     @Override
     UdtChannelConfig setAutoRead(boolean autoRead);
-
-    @Override
-    UdtChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark);
-
-    @Override
-    UdtChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
-
-    @Override
-    UdtChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
 
     /**
      * Sets {@link OptionUDT#Protocol_Receive_Buffer_Size}

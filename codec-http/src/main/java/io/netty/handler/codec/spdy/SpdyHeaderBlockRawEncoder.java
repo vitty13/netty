@@ -27,11 +27,12 @@ public class SpdyHeaderBlockRawEncoder extends SpdyHeaderBlockEncoder {
 
     private final int version;
 
-    public SpdyHeaderBlockRawEncoder(SpdyVersion version) {
-        if (version == null) {
-            throw new NullPointerException("version");
+    public SpdyHeaderBlockRawEncoder(int version) {
+        if (version < SpdyConstants.SPDY_MIN_VERSION || version > SpdyConstants.SPDY_MAX_VERSION) {
+            throw new IllegalArgumentException(
+                    "unknown version: " + version);
         }
-        this.version = version.getVersion();
+        this.version = version;
     }
 
     private void setLengthField(ByteBuf buffer, int writerIndex, int length) {

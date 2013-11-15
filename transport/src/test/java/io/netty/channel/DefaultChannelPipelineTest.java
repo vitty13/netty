@@ -23,14 +23,12 @@ import io.netty.channel.local.LocalAddress;
 import io.netty.channel.local.LocalChannel;
 import io.netty.channel.local.LocalEventLoopGroup;
 import io.netty.channel.local.LocalServerChannel;
-import io.netty.util.AbstractReferenceCounted;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.ReferenceCounted;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Test;
 
-import java.net.SocketAddress;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -102,10 +100,37 @@ public class DefaultChannelPipelineTest {
     public void testFreeCalled() throws Exception {
         final CountDownLatch free = new CountDownLatch(1);
 
-        final ReferenceCounted holder = new AbstractReferenceCounted() {
+        final ReferenceCounted holder = new ReferenceCounted() {
             @Override
-            protected void deallocate() {
+            public int refCnt() {
+                return (int) free.getCount();
+            }
+
+            @Override
+            public ReferenceCounted retain() {
+                fail();
+                return this;
+            }
+
+            @Override
+            public ReferenceCounted retain(int increment) {
+                fail();
+                return this;
+            }
+
+            @Override
+            public boolean release() {
+                assertEquals(1, refCnt());
                 free.countDown();
+                return true;
+            }
+
+            @Override
+            public boolean release(int decrement) {
+                for (int i = 0; i < decrement; i ++) {
+                    release();
+                }
+                return true;
             }
         };
 
@@ -132,7 +157,7 @@ public class DefaultChannelPipelineTest {
 
     @Test
     public void testRemoveChannelHandler() {
-        ChannelPipeline pipeline = new LocalChannel(group.next()).pipeline();
+        ChannelPipeline pipeline = new LocalChannel().pipeline();
 
         ChannelHandler handler1 = newHandler();
         ChannelHandler handler2 = newHandler();
@@ -152,7 +177,7 @@ public class DefaultChannelPipelineTest {
 
     @Test
     public void testReplaceChannelHandler() {
-        ChannelPipeline pipeline = new LocalChannel(group.next()).pipeline();
+        ChannelPipeline pipeline = new LocalChannel().pipeline();
 
         ChannelHandler handler1 = newHandler();
         pipeline.addLast("handler1", handler1);
@@ -177,7 +202,7 @@ public class DefaultChannelPipelineTest {
 
     @Test
     public void testChannelHandlerContextNavigation() {
-        ChannelPipeline pipeline = new LocalChannel(group.next()).pipeline();
+        ChannelPipeline pipeline = new LocalChannel().pipeline();
 
         final int HANDLER_ARRAY_LEN = 5;
         ChannelHandler[] firstHandlers = newHandlers(HANDLER_ARRAY_LEN);
@@ -190,27 +215,8 @@ public class DefaultChannelPipelineTest {
     }
 
     @Test
-    public void testFireChannelRegistered() throws Exception {
-        ChannelPipeline pipeline = new LocalChannel(group.next()).pipeline();
-        final CountDownLatch latch = new CountDownLatch(1);
-        pipeline.addLast(new ChannelInitializer<Channel>() {
-            @Override
-            protected void initChannel(Channel ch) throws Exception {
-                ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
-                    @Override
-                    public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
-                        latch.countDown();
-                    }
-                });
-            }
-        });
-        pipeline.fireChannelRegistered();
-        assertTrue(latch.await(2, TimeUnit.SECONDS));
-    }
-
-    @Test
     public void testPipelineOperation() {
-        ChannelPipeline pipeline = new LocalChannel(group.next()).pipeline();
+        ChannelPipeline pipeline = new LocalChannel().pipeline();
 
         final int handlerNum = 5;
         ChannelHandler[] handlers1 = newHandlers(handlerNum);
@@ -238,7 +244,7 @@ public class DefaultChannelPipelineTest {
 
     @Test
     public void testChannelHandlerContextOrder() {
-        ChannelPipeline pipeline = new LocalChannel(group.next()).pipeline();
+        ChannelPipeline pipeline = new LocalChannel().pipeline();
 
         pipeline.addFirst("1", newHandler());
         pipeline.addLast("10", newHandler());

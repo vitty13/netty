@@ -65,7 +65,7 @@ import java.util.concurrent.TimeUnit;
  * public class MyChannelInitializer extends {@link ChannelInitializer}&lt{@link Channel}&gt {
  *     {@code @Override}
  *     public void initChannel({@link Channel} channel) {
- *         channel.pipeline().addLast("idleStateHandler", new {@link IdleStateHandler}(60, 30, 0));
+ *         channel.pipeline().addLast("idleStateHandler", new {@link IdleStateHandler}(60, 30, 0);
  *         channel.pipeline().addLast("myHandler", new MyHandler());
  *     }
  * }
@@ -76,9 +76,9 @@ import java.util.concurrent.TimeUnit;
  *     public void userEventTriggered({@link ChannelHandlerContext} ctx, {@link Object} evt) throws {@link Exception} {
  *         if (evt instanceof {@link IdleState}} {
  *             {@link IdleState} e = ({@link IdleState}) evt;
- *             if (e.state() == {@link IdleState}.READER_IDLE) {
+ *             if (e.getState() == {@link IdleState}.READER_IDLE) {
  *                 ctx.close();
- *             } else if (e.state() == {@link IdleState}.WRITER_IDLE) {
+ *             } else if (e.getState() == {@link IdleState}.WRITER_IDLE) {
  *                 ctx.writeAndFlush(new PingMessage());
  *             }
  *         }

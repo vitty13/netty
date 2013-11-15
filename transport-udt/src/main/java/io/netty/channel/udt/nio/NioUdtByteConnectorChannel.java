@@ -21,7 +21,6 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelMetadata;
-import io.netty.channel.EventLoop;
 import io.netty.channel.FileRegion;
 import io.netty.channel.nio.AbstractNioByteChannel;
 import io.netty.channel.udt.DefaultUdtChannelConfig;
@@ -47,12 +46,12 @@ public class NioUdtByteConnectorChannel extends AbstractNioByteChannel implement
 
     private final UdtChannelConfig config;
 
-    public NioUdtByteConnectorChannel(EventLoop eventLoop) {
-        this(eventLoop, TypeUDT.STREAM);
+    public NioUdtByteConnectorChannel() {
+        this(TypeUDT.STREAM);
     }
 
-    public NioUdtByteConnectorChannel(Channel parent, EventLoop eventLoop, SocketChannelUDT channelUDT) {
-        super(parent, eventLoop, channelUDT);
+    public NioUdtByteConnectorChannel(final Channel parent, final SocketChannelUDT channelUDT) {
+        super(parent, channelUDT);
         try {
             channelUDT.configureBlocking(false);
             switch (channelUDT.socketUDT().status()) {
@@ -76,12 +75,12 @@ public class NioUdtByteConnectorChannel extends AbstractNioByteChannel implement
         }
     }
 
-    public NioUdtByteConnectorChannel(EventLoop eventLoop, final SocketChannelUDT channelUDT) {
-        this(null, eventLoop, channelUDT);
+    public NioUdtByteConnectorChannel(final SocketChannelUDT channelUDT) {
+        this(null, channelUDT);
     }
 
-    public NioUdtByteConnectorChannel(EventLoop eventLoop, final TypeUDT type) {
-        this(eventLoop, NioUdtProvider.newConnectorChannelUDT(type));
+    public NioUdtByteConnectorChannel(final TypeUDT type) {
+        this(NioUdtProvider.newConnectorChannelUDT(type));
     }
 
     @Override
@@ -141,14 +140,15 @@ public class NioUdtByteConnectorChannel extends AbstractNioByteChannel implement
     }
 
     @Override
-    protected int doWriteBytes(final ByteBuf byteBuf) throws Exception {
+    protected int doWriteBytes(final ByteBuf byteBuf, final boolean lastSpin) throws Exception {
         final int expectedWrittenBytes = byteBuf.readableBytes();
         final int writtenBytes = byteBuf.readBytes(javaChannel(), expectedWrittenBytes);
+        updateOpWrite(expectedWrittenBytes, writtenBytes, lastSpin);
         return writtenBytes;
     }
 
     @Override
-    protected long doWriteFileRegion(FileRegion region) throws Exception {
+    protected long doWriteFileRegion(FileRegion region, boolean lastSpin) throws Exception {
         throw new UnsupportedOperationException();
     }
 

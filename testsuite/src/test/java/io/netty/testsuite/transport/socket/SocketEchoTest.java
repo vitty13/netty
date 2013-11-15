@@ -67,7 +67,7 @@ public class SocketEchoTest extends AbstractSocketTest {
         testSimpleEcho0(sb, cb, false, false);
     }
 
-    @Test//(timeout = 30000)
+    @Test(timeout = 30000)
     public void testSimpleEchoWithAdditionalExecutor() throws Throwable {
         run();
     }
@@ -76,7 +76,7 @@ public class SocketEchoTest extends AbstractSocketTest {
         testSimpleEcho0(sb, cb, true, false);
     }
 
-    @Test//(timeout = 30000)
+    @Test(timeout = 30000)
     public void testSimpleEchoWithVoidPromise() throws Throwable {
         run();
     }
@@ -199,7 +199,7 @@ public class SocketEchoTest extends AbstractSocketTest {
         }
 
         @Override
-        public void messageReceived(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+        public void channelRead0(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
             byte[] actual = new byte[in.readableBytes()];
             in.readBytes(actual);
 

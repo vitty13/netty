@@ -15,7 +15,6 @@
  */
 package io.netty.util.concurrent;
 
-import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 
 /**
@@ -42,7 +41,8 @@ public class DefaultEventExecutorGroup extends MultithreadEventExecutorGroup {
     }
 
     @Override
-    protected EventExecutor newChild(Executor executor, Object... args) throws Exception {
-        return new DefaultEventExecutor(this, executor);
+    protected EventExecutor newChild(
+            ThreadFactory threadFactory, Object... args) throws Exception {
+        return new DefaultEventExecutor(this, threadFactory);
     }
 }

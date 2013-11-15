@@ -15,14 +15,11 @@
  */
 package io.netty.handler.codec.spdy;
 
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.Map.Entry;
 
 
 public class DefaultSpdyHeaders extends SpdyHeaders {
@@ -253,11 +250,6 @@ public class DefaultSpdyHeaders extends SpdyHeaders {
     }
 
     @Override
-    public Iterator<Map.Entry<String, String>> iterator() {
-        return new HeaderIterator();
-    }
-
-    @Override
     public boolean contains(String name) {
         return get(name) != null;
     }
@@ -289,7 +281,7 @@ public class DefaultSpdyHeaders extends SpdyHeaders {
 
     @Override
     public boolean isEmpty() {
-        return head == head.after;
+        return entries().isEmpty();
     }
 
     private static String toString(Object value) {
@@ -297,32 +289,6 @@ public class DefaultSpdyHeaders extends SpdyHeaders {
             return null;
         }
         return value.toString();
-    }
-
-    private final class HeaderIterator implements Iterator<Map.Entry<String, String>> {
-
-        private HeaderEntry current = head;
-
-        @Override
-        public boolean hasNext() {
-            return current.after != head;
-        }
-
-        @Override
-        public Entry<String, String> next() {
-            current = current.after;
-
-            if (current == head) {
-                throw new NoSuchElementException();
-            }
-
-            return current;
-        }
-
-        @Override
-        public void remove() {
-            throw new UnsupportedOperationException();
-        }
     }
 
     private static final class HeaderEntry implements Map.Entry<String, String> {

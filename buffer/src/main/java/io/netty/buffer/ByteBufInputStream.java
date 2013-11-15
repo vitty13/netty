@@ -186,25 +186,21 @@ public class ByteBufInputStream extends InputStream implements DataInput {
     @Override
     public String readLine() throws IOException {
         lineBuf.setLength(0);
-
-        loop: while (true) {
-            if (!buffer.isReadable()) {
-                return (lineBuf.length() > 0) ? lineBuf.toString() : null;
+        for (;;) {
+            int b = read();
+            if (b == -1 && lineBuf.length() == 0) {
+                return null;
+            }
+            if (b < 0 || b == '\n') {
+                break;
             }
 
-            int c = buffer.readUnsignedByte();
-            switch (c) {
-                case '\n':
-                    break loop;
+            lineBuf.append((char) b);
+        }
 
-                case '\r':
-                    if (buffer.isReadable() && buffer.getUnsignedByte(buffer.readerIndex()) == '\n') {
-                        buffer.skipBytes(1);
-                    }
-                    break loop;
-
-                default:
-                    lineBuf.append((char) c);
+        if (lineBuf.length() > 0) {
+            while (lineBuf.charAt(lineBuf.length() - 1) == '\r') {
+                lineBuf.setLength(lineBuf.length() - 1);
             }
         }
 

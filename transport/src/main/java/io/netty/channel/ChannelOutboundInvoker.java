@@ -15,9 +15,10 @@
  */
 package io.netty.channel;
 
+import io.netty.util.concurrent.EventExecutor;
+
 import java.net.ConnectException;
 import java.net.SocketAddress;
-
 /**
  * Interface which is shared by others which need to execute outbound logic.
  */
@@ -62,7 +63,7 @@ interface ChannelOutboundInvoker {
     ChannelFuture connect(SocketAddress remoteAddress, SocketAddress localAddress);
 
     /**
-     * Request to disconnect from the remote peer and notify the {@link ChannelFuture} once the operation completes,
+     * Request to discconect from the remote peer and notify the {@link ChannelFuture} once the operation completes,
      * either because the operation was successful or because of an error.
      * <p>
      * This will result in having the
@@ -85,6 +86,18 @@ interface ChannelOutboundInvoker {
      * {@link Channel}.
      */
     ChannelFuture close();
+
+    /**
+     * Request to deregister this ChannelOutboundInvoker from the previous assigned {@link EventExecutor} and notify the
+     * {@link ChannelFuture} once the operation completes, either because the operation was successful or because of
+     * an error.
+     * <p>
+     * This will result in having the
+     * {@link ChannelOutboundHandler#deregister(ChannelHandlerContext, ChannelPromise)}
+     * method called of the next {@link ChannelOutboundHandler} contained in the  {@link ChannelPipeline} of the
+     * {@link Channel}.
+     */
+    ChannelFuture deregister();
 
     /**
      * Request to bind to the given {@link SocketAddress} and notify the {@link ChannelFuture} once the operation
@@ -132,7 +145,7 @@ interface ChannelOutboundInvoker {
     ChannelFuture connect(SocketAddress remoteAddress, SocketAddress localAddress, ChannelPromise promise);
 
     /**
-     * Request to disconnect from the remote peer and notify the {@link ChannelFuture} once the operation completes,
+     * Request to discconect from the remote peer and notify the {@link ChannelFuture} once the operation completes,
      * either because the operation was successful or because of an error.
      *
      * The given {@link ChannelPromise} will be notified.
@@ -158,6 +171,20 @@ interface ChannelOutboundInvoker {
      * {@link Channel}.
      */
     ChannelFuture close(ChannelPromise promise);
+
+    /**
+     * Request to deregister this ChannelOutboundInvoker from the previous assigned {@link EventExecutor} and notify the
+     * {@link ChannelFuture} once the operation completes, either because the operation was successful or because of
+     * an error.
+     *
+     * The given {@link ChannelPromise} will be notified.
+     * <p>
+     * This will result in having the
+     * {@link ChannelOutboundHandler#deregister(ChannelHandlerContext, ChannelPromise)}
+     * method called of the next {@link ChannelOutboundHandler} contained in the  {@link ChannelPipeline} of the
+     * {@link Channel}.
+     */
+    ChannelFuture deregister(ChannelPromise promise);
 
     /**
      * Request to Read data from the {@link Channel} into the first inbound buffer, triggers an

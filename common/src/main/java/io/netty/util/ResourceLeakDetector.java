@@ -17,7 +17,6 @@
 package io.netty.util;
 
 import io.netty.util.internal.PlatformDependent;
-import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.SystemPropertyUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -29,31 +28,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ResourceLeakDetector<T> {
 
-    private static boolean disabled;
+    private static final boolean DISABLED = SystemPropertyUtil.getBoolean("io.netty.noResourceLeakDetection", false);
+
+    public static final boolean ENABLED = !DISABLED;
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(ResourceLeakDetector.class);
 
     static {
-        final boolean DISABLED = SystemPropertyUtil.getBoolean("io.netty.noResourceLeakDetection", false);
         logger.debug("-Dio.netty.noResourceLeakDetection: {}", DISABLED);
-        disabled = DISABLED;
     }
 
     private static final int DEFAULT_SAMPLING_INTERVAL = 113;
 
-    /**
-     * Enables or disabled the resource leak detection.
-     */
-    public static void setEnabled(boolean enabled) {
-        disabled = !enabled;
-    }
-
-    /**
-     * Returns {@code true} if resource leak detection is enabled.
-     */
-    public static boolean isEnabled() {
-        return !disabled;
-    }
+    private static final ResourceLeak NOOP = new ResourceLeak() {
+        @Override
+        public boolean close() {
+            return false;
+        }
+    };
 
     /** the linked list of active resources */
     private final DefaultResourceLeak head = new DefaultResourceLeak(null);
@@ -71,7 +63,7 @@ public final class ResourceLeakDetector<T> {
     private long leakCheckCnt;
 
     public ResourceLeakDetector(Class<?> resourceType) {
-        this(StringUtil.simpleClassName(resourceType));
+        this(resourceType.getSimpleName());
     }
 
     public ResourceLeakDetector(String resourceType) {
@@ -79,7 +71,7 @@ public final class ResourceLeakDetector<T> {
     }
 
     public ResourceLeakDetector(Class<?> resourceType, int samplingInterval, long maxActive) {
-        this(StringUtil.simpleClassName(resourceType), samplingInterval, maxActive);
+        this(resourceType.getSimpleName(), samplingInterval, maxActive);
     }
 
     public ResourceLeakDetector(String resourceType, int samplingInterval, long maxActive) {
@@ -101,15 +93,9 @@ public final class ResourceLeakDetector<T> {
         tail.prev = head;
     }
 
-    /**
-     * Creates a new {@link ResourceLeak} which is expected to be closed via {@link ResourceLeak#close()} when the
-     * related resource is deallocated.
-     *
-     * @return the {@link ResourceLeak} or {@code null}
-     */
     public ResourceLeak open(T obj) {
-        if (disabled || leakCheckCnt ++ % samplingInterval != 0) {
-            return null;
+        if (DISABLED || leakCheckCnt ++ % samplingInterval != 0) {
+            return NOOP;
         }
 
         reportLeak();
@@ -153,10 +139,7 @@ public final class ResourceLeakDetector<T> {
             }
 
             if (reportedLeaks.putIfAbsent(ref.exception, Boolean.TRUE) == null) {
-                logger.warn(
-                        "LEAK: " + resourceType + " was GC'd before being released correctly.  " +
-                        "The following stack trace shows where the leaked object was created, " +
-                        "rather than where you failed to release it.", ref.exception);
+                logger.warn("LEAK: " + resourceType + " was GC'd before being released correctly.", ref.exception);
             }
         }
     }

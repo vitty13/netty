@@ -320,6 +320,14 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder {
                     initialBytesToStrip);
         }
 
+        if (lengthFieldLength != 1 && lengthFieldLength != 2 &&
+            lengthFieldLength != 3 && lengthFieldLength != 4 &&
+            lengthFieldLength != 8) {
+            throw new IllegalArgumentException(
+                    "lengthFieldLength must be either 1, 2, 3, 4, or 8: " +
+                    lengthFieldLength);
+        }
+
         if (lengthFieldOffset > maxFrameLength - lengthFieldLength) {
             throw new IllegalArgumentException(
                     "maxFrameLength (" + maxFrameLength + ") " +
@@ -361,8 +369,8 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder {
             in.skipBytes(localBytesToDiscard);
             bytesToDiscard -= localBytesToDiscard;
             this.bytesToDiscard = bytesToDiscard;
-
             failIfNecessary(false);
+            return null;
         }
 
         if (in.readableBytes() < lengthFieldEndOffset) {
@@ -370,7 +378,7 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder {
         }
 
         int actualLengthFieldOffset = in.readerIndex() + lengthFieldOffset;
-        long frameLength = getUnadjustedFrameLength(in, actualLengthFieldOffset, lengthFieldLength, byteOrder);
+        long frameLength = getFrameLength(in, actualLengthFieldOffset);
 
         if (frameLength < 0) {
             in.skipBytes(lengthFieldEndOffset);
@@ -388,18 +396,11 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder {
         }
 
         if (frameLength > maxFrameLength) {
-            long discard = frameLength - in.readableBytes();
+            // Enter the discard mode and discard everything received so far.
+            discardingTooLongFrame = true;
             tooLongFrameLength = frameLength;
-
-            if (discard < 0) {
-                // buffer contains more bytes then the frameLength so we can discard all now
-                in.skipBytes((int) frameLength);
-            } else {
-                // Enter the discard mode and discard everything received so far.
-                discardingTooLongFrame = true;
-                bytesToDiscard = discard;
-                in.skipBytes(in.readableBytes());
-            }
+            bytesToDiscard = frameLength - in.readableBytes();
+            in.skipBytes(in.readableBytes());
             failIfNecessary(true);
             return null;
         }
@@ -426,36 +427,27 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder {
         return frame;
     }
 
-    /**
-     * Decodes the specified region of the buffer into an unadjusted frame length.  The default implementation is
-     * capable of decoding the specified region into an unsigned 8/16/24/32/64 bit integer.  Override this method to
-     * decode the length field encoded differently.  Note that this method must not modify the state of the specified
-     * buffer (e.g. {@code readerIndex}, {@code writerIndex}, and the content of the buffer.)
-     *
-     * @throws DecoderException if failed to decode the specified region
-     */
-    protected long getUnadjustedFrameLength(ByteBuf buf, int offset, int length, ByteOrder order) {
-        buf = buf.order(order);
+    private long getFrameLength(ByteBuf in, int actualLengthFieldOffset) {
+        in = in.order(byteOrder);
         long frameLength;
-        switch (length) {
+        switch (lengthFieldLength) {
         case 1:
-            frameLength = buf.getUnsignedByte(offset);
+            frameLength = in.getUnsignedByte(actualLengthFieldOffset);
             break;
         case 2:
-            frameLength = buf.getUnsignedShort(offset);
+            frameLength = in.getUnsignedShort(actualLengthFieldOffset);
             break;
         case 3:
-            frameLength = buf.getUnsignedMedium(offset);
+            frameLength = in.getUnsignedMedium(actualLengthFieldOffset);
             break;
         case 4:
-            frameLength = buf.getUnsignedInt(offset);
+            frameLength = in.getUnsignedInt(actualLengthFieldOffset);
             break;
         case 8:
-            frameLength = buf.getLong(offset);
+            frameLength = in.getLong(actualLengthFieldOffset);
             break;
         default:
-            throw new DecoderException(
-                    "unsupported lengthFieldLength: " + lengthFieldLength + " (expected: 1, 2, 3, 4, or 8)");
+            throw new Error("should not reach here");
         }
         return frameLength;
     }

@@ -20,7 +20,6 @@ import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.DefaultChannelConfig;
 import io.netty.channel.FixedRecvByteBufAllocator;
-import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.logging.InternalLogger;
@@ -46,7 +45,6 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
     private static final RecvByteBufAllocator DEFAULT_RCVBUF_ALLOCATOR = new FixedRecvByteBufAllocator(2048);
 
     private final DatagramSocket javaSocket;
-    private volatile boolean activeOnOpen;
 
     /**
      * Creates a new instance.
@@ -65,7 +63,7 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
         return getOptions(
                 super.getOptions(),
                 SO_BROADCAST, SO_RCVBUF, SO_SNDBUF, SO_REUSEADDR, IP_MULTICAST_LOOP_DISABLED,
-                IP_MULTICAST_ADDR, IP_MULTICAST_IF, IP_MULTICAST_TTL, IP_TOS, DATAGRAM_CHANNEL_ACTIVE_ON_REGISTRATION);
+                IP_MULTICAST_ADDR, IP_MULTICAST_IF, IP_MULTICAST_TTL, IP_TOS);
     }
 
     @SuppressWarnings("unchecked")
@@ -100,9 +98,7 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
         if (option == IP_TOS) {
             return (T) Integer.valueOf(getTrafficClass());
         }
-        if (option == DATAGRAM_CHANNEL_ACTIVE_ON_REGISTRATION) {
-            return (T) Boolean.valueOf(activeOnOpen);
-        }
+
         return super.getOption(option);
     }
 
@@ -128,20 +124,11 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
             setTimeToLive((Integer) value);
         } else if (option == IP_TOS) {
             setTrafficClass((Integer) value);
-        } else if (option == DATAGRAM_CHANNEL_ACTIVE_ON_REGISTRATION) {
-            setActiveOnOpen((Boolean) value);
         } else {
             return super.setOption(option, value);
         }
 
         return true;
-    }
-
-    private void setActiveOnOpen(boolean activeOnOpen) {
-        if (channel.isRegistered()) {
-            throw new IllegalStateException("Can only changed before channel was registered");
-        }
-        this.activeOnOpen = activeOnOpen;
     }
 
     @Override
@@ -405,12 +392,6 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
     @Override
     public DatagramChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark) {
         super.setWriteBufferLowWaterMark(writeBufferLowWaterMark);
-        return this;
-    }
-
-    @Override
-    public DatagramChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator) {
-        super.setMessageSizeEstimator(estimator);
         return this;
     }
 }

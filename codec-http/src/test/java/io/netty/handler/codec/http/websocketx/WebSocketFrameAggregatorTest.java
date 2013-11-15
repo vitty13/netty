@@ -42,6 +42,7 @@ public class WebSocketFrameAggregatorTest {
 
         Assert.assertTrue(channel.finish());
 
+        System.out.println(channel.lastInboundBuffer().size());
         BinaryWebSocketFrame frame = (BinaryWebSocketFrame) channel.readInbound();
         Assert.assertTrue(frame.isFinalFragment());
         Assert.assertEquals(1, frame.rsv());

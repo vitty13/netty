@@ -19,8 +19,6 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 
-import java.util.List;
-
 
 /**
  * An encoder that prepends the length of the message.  The length value is
@@ -49,7 +47,7 @@ import java.util.List;
  * </pre>
  */
 @Sharable
-public class LengthFieldPrepender extends MessageToMessageEncoder<ByteBuf> {
+public class LengthFieldPrepender extends MessageToByteEncoder<ByteBuf> {
 
     private final int lengthFieldLength;
     private final boolean lengthIncludesLengthFieldLength;
@@ -130,7 +128,7 @@ public class LengthFieldPrepender extends MessageToMessageEncoder<ByteBuf> {
     }
 
     @Override
-    protected void encode(ChannelHandlerContext ctx, ByteBuf msg, List<Object> out) throws Exception {
+    protected void encode(ChannelHandlerContext ctx, ByteBuf msg, ByteBuf out) throws Exception {
         int length = msg.readableBytes() + lengthAdjustment;
         if (lengthIncludesLengthFieldLength) {
             length += lengthFieldLength;
@@ -147,31 +145,32 @@ public class LengthFieldPrepender extends MessageToMessageEncoder<ByteBuf> {
                 throw new IllegalArgumentException(
                         "length does not fit into a byte: " + length);
             }
-            out.add(ctx.alloc().buffer(1).writeByte((byte) length));
+            out.writeByte((byte) length);
             break;
         case 2:
             if (length >= 65536) {
                 throw new IllegalArgumentException(
                         "length does not fit into a short integer: " + length);
             }
-            out.add(ctx.alloc().buffer(2).writeShort((short) length));
+            out.writeShort((short) length);
             break;
         case 3:
             if (length >= 16777216) {
                 throw new IllegalArgumentException(
                         "length does not fit into a medium integer: " + length);
             }
-            out.add(ctx.alloc().buffer(3).writeMedium(length));
+            out.writeMedium(length);
             break;
         case 4:
-            out.add(ctx.alloc().buffer(4).writeInt(length));
+            out.writeInt(length);
             break;
         case 8:
-            out.add(ctx.alloc().buffer(8).writeLong(length));
+            out.writeLong(length);
             break;
         default:
             throw new Error("should not reach here");
         }
-        out.add(msg.retain());
+
+        out.writeBytes(msg, msg.readerIndex(), msg.readableBytes());
     }
 }

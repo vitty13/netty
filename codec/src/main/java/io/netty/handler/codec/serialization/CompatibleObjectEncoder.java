@@ -37,7 +37,7 @@ import java.io.Serializable;
 public class CompatibleObjectEncoder extends MessageToByteEncoder<Serializable> {
 
     private static final AttributeKey<ObjectOutputStream> OOS =
-            AttributeKey.valueOf(CompatibleObjectEncoder.class, "OOS");
+            new AttributeKey<ObjectOutputStream>(CompatibleObjectEncoder.class.getName() + ".oos");
 
     private final int resetInterval;
     private int writtenObjects;

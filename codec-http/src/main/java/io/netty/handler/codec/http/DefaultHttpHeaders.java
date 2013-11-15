@@ -15,18 +15,12 @@
  */
 package io.netty.handler.codec.http;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -34,35 +28,13 @@ public class DefaultHttpHeaders extends HttpHeaders {
 
     private static final int BUCKET_SIZE = 17;
 
-    private static final Set<String> KNOWN_NAMES = createSet(Names.class);
-    private static final Set<String> KNOWN_VALUES = createSet(Values.class);
-
-    private static Set<String> createSet(Class<?> clazz) {
-        Set<String> set = new HashSet<String>();
-        Field[] fields = clazz.getDeclaredFields();
-
-        for (Field f: fields) {
-            int m = f.getModifiers();
-            if (Modifier.isPublic(m) && Modifier.isStatic(m) && Modifier.isFinal(m)
-                    && f.getType().isAssignableFrom(String.class)) {
-                try {
-                    set.add((String) f.get(null));
-                } catch (Throwable cause) {
-                    // ignore
-                }
-            }
-        }
-        return set;
-    }
-
-    private static int hash(String name, boolean validate) {
+    private static int hash(String name) {
         int h = 0;
         for (int i = name.length() - 1; i >= 0; i --) {
             char c = name.charAt(i);
-            if (validate) {
-                valideHeaderNameChar(c);
+            if (c >= 'A' && c <= 'Z') {
+                c += 32;
             }
-            c = toLowerCase(c);
             h = 31 * h + c;
         }
 
@@ -76,10 +48,6 @@ public class DefaultHttpHeaders extends HttpHeaders {
     }
 
     private static boolean eq(String name1, String name2) {
-        if (name1 == name2) {
-            // check for object equality as the user may reuse our static fields in HttpHeaders.Names
-            return true;
-        }
         int nameLen = name1.length();
         if (nameLen != name2.length()) {
             return false;
@@ -89,19 +57,18 @@ public class DefaultHttpHeaders extends HttpHeaders {
             char c1 = name1.charAt(i);
             char c2 = name2.charAt(i);
             if (c1 != c2) {
-                if (toLowerCase(c1) != toLowerCase(c2)) {
+                if (c1 >= 'A' && c1 <= 'Z') {
+                    c1 += 32;
+                }
+                if (c2 >= 'A' && c2 <= 'Z') {
+                    c2 += 32;
+                }
+                if (c1 != c2) {
                     return false;
                 }
             }
         }
         return true;
-    }
-
-    private static char toLowerCase(char c) {
-        if (c >= 'A' && c <= 'Z') {
-            c += 32;
-        }
-        return c;
     }
 
     private static int index(int hash) {
@@ -110,34 +77,21 @@ public class DefaultHttpHeaders extends HttpHeaders {
 
     private final HeaderEntry[] entries = new HeaderEntry[BUCKET_SIZE];
     private final HeaderEntry head = new HeaderEntry(-1, null, null);
-    protected final boolean validate;
 
     public DefaultHttpHeaders() {
-        this(true);
-    }
-
-    public DefaultHttpHeaders(boolean validate) {
         head.before = head.after = head;
-        this.validate = validate;
     }
 
-    void validateHeaderValue0(String headerValue) {
-        if (KNOWN_VALUES.contains(headerValue)) {
-            return;
-        }
-        validateHeaderValue(headerValue);
+    void validateHeaderName0(String headerName) {
+        validateHeaderName(headerName);
     }
 
     @Override
     public HttpHeaders add(final String name, final Object value) {
+        validateHeaderName0(name);
         String strVal = toString(value);
-        boolean validateName = false;
-        if (validate) {
-            validateHeaderValue0(strVal);
-            validateName = !KNOWN_NAMES.contains(name);
-        }
-
-        int h = hash(name, validateName);
+        validateHeaderValue(strVal);
+        int h = hash(name);
         int i = index(h);
         add0(h, i, name, strVal);
         return this;
@@ -145,18 +99,12 @@ public class DefaultHttpHeaders extends HttpHeaders {
 
     @Override
     public HttpHeaders add(String name, Iterable<?> values) {
-        boolean validateName = false;
-        if (validate) {
-            validateName = !KNOWN_NAMES.contains(name);
-        }
-
-        int h = hash(name, validateName);
+        validateHeaderName0(name);
+        int h = hash(name);
         int i = index(h);
         for (Object v: values) {
             String vstr = toString(v);
-            if (validate) {
-                validateHeaderValue0(vstr);
-            }
+            validateHeaderValue(vstr);
             add0(h, i, name, vstr);
         }
         return this;
@@ -178,7 +126,7 @@ public class DefaultHttpHeaders extends HttpHeaders {
         if (name == null) {
             throw new NullPointerException("name");
         }
-        int h = hash(name, false);
+        int h = hash(name);
         int i = index(h);
         remove0(h, i, name);
         return this;
@@ -222,14 +170,10 @@ public class DefaultHttpHeaders extends HttpHeaders {
 
     @Override
     public HttpHeaders set(final String name, final Object value) {
+        validateHeaderName0(name);
         String strVal = toString(value);
-        boolean validateName = false;
-        if (validate) {
-            validateHeaderValue0(strVal);
-            validateName = !KNOWN_NAMES.contains(name);
-        }
-
-        int h = hash(name, validateName);
+        validateHeaderValue(strVal);
+        int h = hash(name);
         int i = index(h);
         remove0(h, i, name);
         add0(h, i, name, strVal);
@@ -242,12 +186,9 @@ public class DefaultHttpHeaders extends HttpHeaders {
             throw new NullPointerException("values");
         }
 
-        boolean validateName = false;
-        if (validate) {
-            validateName = !KNOWN_NAMES.contains(name);
-        }
+        validateHeaderName0(name);
 
-        int h = hash(name, validateName);
+        int h = hash(name);
         int i = index(h);
 
         remove0(h, i, name);
@@ -256,9 +197,7 @@ public class DefaultHttpHeaders extends HttpHeaders {
                 break;
             }
             String strVal = toString(v);
-            if (validate) {
-                validateHeaderValue0(strVal);
-            }
+            validateHeaderValue(strVal);
             add0(h, i, name, strVal);
         }
 
@@ -267,37 +206,30 @@ public class DefaultHttpHeaders extends HttpHeaders {
 
     @Override
     public HttpHeaders clear() {
-        Arrays.fill(entries, null);
+        for (int i = 0; i < entries.length; i ++) {
+            entries[i] = null;
+        }
         head.before = head.after = head;
         return this;
     }
 
     @Override
     public String get(final String name) {
-        return get(name, false);
-    }
-
-    private String get(final String name, boolean last) {
         if (name == null) {
             throw new NullPointerException("name");
         }
 
-        int h = hash(name, false);
+        int h = hash(name);
         int i = index(h);
         HeaderEntry e = entries[i];
-        String value = null;
-        // loop until the first header was found
         while (e != null) {
             if (e.hash == h && eq(name, e.key)) {
-                value = e.value;
-                if (last) {
-                    break;
-                }
+                return e.value;
             }
 
             e = e.next;
         }
-        return value;
+        return null;
     }
 
     @Override
@@ -308,7 +240,7 @@ public class DefaultHttpHeaders extends HttpHeaders {
 
         LinkedList<String> values = new LinkedList<String>();
 
-        int h = hash(name, false);
+        int h = hash(name);
         int i = index(h);
         HeaderEntry e = entries[i];
         while (e != null) {
@@ -335,43 +267,17 @@ public class DefaultHttpHeaders extends HttpHeaders {
 
     @Override
     public Iterator<Map.Entry<String, String>> iterator() {
-        return new HeaderIterator();
+        return entries().iterator();
     }
 
     @Override
     public boolean contains(String name) {
-        return get(name, true) != null;
+        return get(name) != null;
     }
 
     @Override
     public boolean isEmpty() {
         return head == head.after;
-    }
-
-    @Override
-    public boolean contains(String name, String value, boolean ignoreCaseValue) {
-        if (name == null) {
-            throw new NullPointerException("name");
-        }
-
-        int h = hash(name, false);
-        int i = index(h);
-        HeaderEntry e = entries[i];
-        while (e != null) {
-            if (e.hash == h && eq(name, e.key)) {
-                if (ignoreCaseValue) {
-                    if (e.value.equalsIgnoreCase(value)) {
-                        return true;
-                    }
-                } else {
-                    if (e.value.equals(value)) {
-                        return true;
-                    }
-                }
-            }
-            e = e.next;
-        }
-        return false;
     }
 
     @Override
@@ -406,33 +312,7 @@ public class DefaultHttpHeaders extends HttpHeaders {
         return value.toString();
     }
 
-    private final class HeaderIterator implements Iterator<Map.Entry<String, String>> {
-
-        private HeaderEntry current = head;
-
-        @Override
-        public boolean hasNext() {
-            return current.after != head;
-        }
-
-        @Override
-        public Entry<String, String> next() {
-            current = current.after;
-
-            if (current == head) {
-                throw new NoSuchElementException();
-            }
-
-            return current;
-        }
-
-        @Override
-        public void remove() {
-            throw new UnsupportedOperationException();
-        }
-    }
-
-    private final class HeaderEntry implements Map.Entry<String, String> {
+    private static final class HeaderEntry implements Map.Entry<String, String> {
         final int hash;
         final String key;
         String value;
@@ -472,9 +352,7 @@ public class DefaultHttpHeaders extends HttpHeaders {
             if (value == null) {
                 throw new NullPointerException("value");
             }
-            if (validate) {
-                validateHeaderValue0(value);
-            }
+            validateHeaderValue(value);
             String oldValue = this.value;
             this.value = value;
             return oldValue;

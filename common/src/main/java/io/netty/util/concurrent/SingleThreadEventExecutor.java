@@ -27,7 +27,6 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
-import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -61,9 +60,7 @@ public abstract class SingleThreadEventExecutor extends AbstractEventExecutor {
     private final Queue<Runnable> taskQueue;
     final Queue<ScheduledFutureTask<?>> delayedTaskQueue = new PriorityQueue<ScheduledFutureTask<?>>();
 
-    private volatile Thread thread;
-    private final Executor executor;
-    private volatile boolean interrupted;
+    private final Thread thread;
     private final Object stateLock = new Object();
     private final Semaphore threadLock = new Semaphore(0);
     private final Set<Runnable> shutdownHooks = new LinkedHashSet<Runnable>();
@@ -87,27 +84,64 @@ public abstract class SingleThreadEventExecutor extends AbstractEventExecutor {
      */
     protected SingleThreadEventExecutor(
             EventExecutorGroup parent, ThreadFactory threadFactory, boolean addTaskWakesUp) {
-        this(parent, new ThreadPerTaskExecutor(threadFactory), addTaskWakesUp);
-    }
 
-    /**
-     * Create a new instance
-     *
-     * @param parent            the {@link EventExecutorGroup} which is the parent of this instance and belongs to it
-     * @param executor          the {@link Executor} which will be used for executing
-     * @param addTaskWakesUp    {@code true} if and only if invocation of {@link #addTask(Runnable)} will wake up the
-     *                          executor thread
-     */
-    protected SingleThreadEventExecutor(
-            EventExecutorGroup parent, Executor executor, boolean addTaskWakesUp) {
-
-        if (executor == null) {
-            throw new NullPointerException("executor");
+        if (threadFactory == null) {
+            throw new NullPointerException("threadFactory");
         }
 
         this.parent = parent;
         this.addTaskWakesUp = addTaskWakesUp;
-        this.executor = executor;
+
+        thread = threadFactory.newThread(new Runnable() {
+            @Override
+            public void run() {
+                boolean success = false;
+                updateLastExecutionTime();
+                try {
+                    SingleThreadEventExecutor.this.run();
+                    success = true;
+                } catch (Throwable t) {
+                    logger.warn("Unexpected exception from an event executor: ", t);
+                } finally {
+                    if (state < ST_SHUTTING_DOWN) {
+                        state = ST_SHUTTING_DOWN;
+                    }
+
+                    // Check if confirmShutdown() was called at the end of the loop.
+                    if (success && gracefulShutdownStartTime == 0) {
+                        logger.error(
+                                "Buggy " + EventExecutor.class.getSimpleName() + " implementation; " +
+                                SingleThreadEventExecutor.class.getSimpleName() + ".confirmShutdown() must be called " +
+                                "before run() implementation terminates.");
+                    }
+
+                    try {
+                        // Run all remaining tasks and shutdown hooks.
+                        for (;;) {
+                            if (confirmShutdown()) {
+                                break;
+                            }
+                        }
+                    } finally {
+                        try {
+                            cleanup();
+                        } finally {
+                            synchronized (stateLock) {
+                                state = ST_TERMINATED;
+                            }
+                            threadLock.release();
+                            if (!taskQueue.isEmpty()) {
+                                logger.warn(
+                                        "An event executor terminated with " +
+                                        "non-empty task queue (" + taskQueue.size() + ')');
+                            }
+
+                            terminationFuture.setSuccess(null);
+                        }
+                    }
+                }
+            }
+        });
 
         taskQueue = newTaskQueue();
     }
@@ -131,12 +165,7 @@ public abstract class SingleThreadEventExecutor extends AbstractEventExecutor {
      * Interrupt the current running {@link Thread}.
      */
     protected void interruptThread() {
-        Thread currentThread = thread;
-        if (currentThread == null) {
-            interrupted = true;
-        } else {
-            currentThread.interrupt();
-        }
+        thread.interrupt();
     }
 
     /**
@@ -184,19 +213,18 @@ public abstract class SingleThreadEventExecutor extends AbstractEventExecutor {
                 return task;
             } else {
                 long delayNanos = delayedTask.delayNanos();
-                Runnable task = null;
+                Runnable task;
                 if (delayNanos > 0) {
                     try {
                         task = taskQueue.poll(delayNanos, TimeUnit.NANOSECONDS);
                     } catch (InterruptedException e) {
                         return null;
                     }
+                } else {
+                    task = taskQueue.poll();
                 }
+
                 if (task == null) {
-                    // We need to fetch the delayed tasks now as otherwise there may be a chance that
-                    // delayed tasks are never executed if there is always one task in the taskQueue.
-                    // This is for example true for the read task of OIO Transport
-                    // See https://github.com/netty/netty/issues/1614
                     fetchFromDelayedQueue();
                     task = taskQueue.poll();
                 }
@@ -350,7 +378,7 @@ public abstract class SingleThreadEventExecutor extends AbstractEventExecutor {
     }
 
     /**
-     * Returns the amount of time left until the scheduled task with the closest dead line is executed.
+     * Returns the ammount of time left until the scheduled task with the closest dead line is executed.
      */
     protected long delayNanos(long currentTimeNanos) {
         ScheduledFutureTask<?> delayedTask = delayedTaskQueue.peek();
@@ -486,7 +514,7 @@ public abstract class SingleThreadEventExecutor extends AbstractEventExecutor {
                 switch (state) {
                     case ST_NOT_STARTED:
                         state = ST_SHUTTING_DOWN;
-                        doStartThread();
+                        thread.start();
                         break;
                     case ST_STARTED:
                         state = ST_SHUTTING_DOWN;
@@ -531,7 +559,7 @@ public abstract class SingleThreadEventExecutor extends AbstractEventExecutor {
                 switch (state) {
                 case ST_NOT_STARTED:
                     state = ST_SHUTDOWN;
-                    doStartThread();
+                    thread.start();
                     break;
                 case ST_STARTED:
                 case ST_SHUTTING_DOWN:
@@ -780,67 +808,9 @@ public abstract class SingleThreadEventExecutor extends AbstractEventExecutor {
                 delayedTaskQueue.add(new ScheduledFutureTask<Void>(
                         this, delayedTaskQueue, Executors.<Void>callable(new PurgeTask(), null),
                         ScheduledFutureTask.deadlineNanos(SCHEDULE_PURGE_INTERVAL), -SCHEDULE_PURGE_INTERVAL));
-                doStartThread();
+                thread.start();
             }
         }
-    }
-
-    private void doStartThread() {
-        assert thread == null;
-        executor.execute(new Runnable() {
-            @Override
-            public void run() {
-                thread = Thread.currentThread();
-                if (interrupted) {
-                    thread.interrupt();
-                }
-
-                boolean success = false;
-                updateLastExecutionTime();
-                try {
-                    SingleThreadEventExecutor.this.run();
-                    success = true;
-                } catch (Throwable t) {
-                    logger.warn("Unexpected exception from an event executor: ", t);
-                } finally {
-                    if (state < ST_SHUTTING_DOWN) {
-                        state = ST_SHUTTING_DOWN;
-                    }
-
-                    // Check if confirmShutdown() was called at the end of the loop.
-                    if (success && gracefulShutdownStartTime == 0) {
-                        logger.error("Buggy " + EventExecutor.class.getSimpleName() + " implementation; " +
-                                SingleThreadEventExecutor.class.getSimpleName() + ".confirmShutdown() must be called " +
-                                "before run() implementation terminates.");
-                    }
-
-                    try {
-                        // Run all remaining tasks and shutdown hooks.
-                        for (;;) {
-                            if (confirmShutdown()) {
-                                break;
-                            }
-                        }
-                    } finally {
-                        try {
-                            cleanup();
-                        } finally {
-                            synchronized (stateLock) {
-                                state = ST_TERMINATED;
-                            }
-                            threadLock.release();
-                            if (!taskQueue.isEmpty()) {
-                                logger.warn(
-                                        "An event executor terminated with " +
-                                                "non-empty task queue (" + taskQueue.size() + ')');
-                            }
-
-                            terminationFuture.setSuccess(null);
-                        }
-                    }
-                }
-            }
-        });
     }
 
     private final class PurgeTask implements Runnable {

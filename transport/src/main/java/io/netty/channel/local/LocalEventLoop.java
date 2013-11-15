@@ -17,12 +17,12 @@ package io.netty.channel.local;
 
 import io.netty.channel.SingleThreadEventLoop;
 
-import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadFactory;
 
 final class LocalEventLoop extends SingleThreadEventLoop {
 
-    LocalEventLoop(LocalEventLoopGroup parent, Executor executor) {
-        super(parent, executor, true);
+    LocalEventLoop(LocalEventLoopGroup parent, ThreadFactory threadFactory) {
+        super(parent, threadFactory, true);
     }
 
     @Override

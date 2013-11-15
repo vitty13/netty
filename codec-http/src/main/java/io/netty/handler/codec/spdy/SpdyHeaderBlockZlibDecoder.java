@@ -25,13 +25,15 @@ import static io.netty.handler.codec.spdy.SpdyCodecUtil.*;
 
 class SpdyHeaderBlockZlibDecoder extends SpdyHeaderBlockRawDecoder {
 
+    private final int version;
     private final byte[] out = new byte[8192];
     private final Inflater decompressor = new Inflater();
 
     private ByteBuf decompressed;
 
-    public SpdyHeaderBlockZlibDecoder(SpdyVersion version, int maxHeaderSize) {
+    public SpdyHeaderBlockZlibDecoder(int version, int maxHeaderSize) {
         super(version, maxHeaderSize);
+        this.version = version;
     }
 
     @Override
@@ -57,7 +59,11 @@ class SpdyHeaderBlockZlibDecoder extends SpdyHeaderBlockRawDecoder {
         try {
             int numBytes = decompressor.inflate(out);
             if (numBytes == 0 && decompressor.needsDictionary()) {
-                decompressor.setDictionary(SPDY_DICT);
+                if (version < 3) {
+                    decompressor.setDictionary(SPDY2_DICT);
+                } else {
+                    decompressor.setDictionary(SPDY_DICT);
+                }
                 numBytes = decompressor.inflate(out);
             }
             if (frame != null) {

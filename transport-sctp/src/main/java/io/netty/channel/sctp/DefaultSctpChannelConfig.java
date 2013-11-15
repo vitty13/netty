@@ -22,14 +22,12 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.DefaultChannelConfig;
-import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.util.internal.PlatformDependent;
 
 import java.io.IOException;
 import java.util.Map;
 
-import static io.netty.channel.ChannelOption.*;
 import static io.netty.channel.sctp.SctpChannelOption.*;
 
 /**
@@ -175,8 +173,7 @@ public class DefaultSctpChannelConfig extends DefaultChannelConfig implements Sc
 
     @Override
     public SctpChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis) {
-        super.setConnectTimeoutMillis(connectTimeoutMillis);
-        return this;
+        return (SctpChannelConfig) super.setConnectTimeoutMillis(connectTimeoutMillis);
     }
 
     @Override
@@ -187,14 +184,12 @@ public class DefaultSctpChannelConfig extends DefaultChannelConfig implements Sc
 
     @Override
     public SctpChannelConfig setWriteSpinCount(int writeSpinCount) {
-        super.setWriteSpinCount(writeSpinCount);
-        return this;
+        return (SctpChannelConfig) super.setWriteSpinCount(writeSpinCount);
     }
 
     @Override
     public SctpChannelConfig setAllocator(ByteBufAllocator allocator) {
-        super.setAllocator(allocator);
-        return this;
+        return (SctpChannelConfig) super.setAllocator(allocator);
     }
 
     @Override
@@ -205,25 +200,16 @@ public class DefaultSctpChannelConfig extends DefaultChannelConfig implements Sc
 
     @Override
     public SctpChannelConfig setAutoRead(boolean autoRead) {
-        super.setAutoRead(autoRead);
-        return this;
+        return (SctpChannelConfig) super.setAutoRead(autoRead);
     }
 
     @Override
     public SctpChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark) {
-        super.setWriteBufferHighWaterMark(writeBufferHighWaterMark);
-        return this;
+        return (SctpChannelConfig) super.setWriteBufferHighWaterMark(writeBufferHighWaterMark);
     }
 
     @Override
     public SctpChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark) {
-        super.setWriteBufferLowWaterMark(writeBufferLowWaterMark);
-        return this;
-    }
-
-    @Override
-    public SctpChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator) {
-        super.setMessageSizeEstimator(estimator);
-        return this;
+        return (SctpChannelConfig) super.setWriteBufferLowWaterMark(writeBufferLowWaterMark);
     }
 }

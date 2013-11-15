@@ -44,7 +44,6 @@ public class LengthFieldBasedFrameDecoderTest {
             ch.writeInbound(Unpooled.wrappedBuffer(new byte[] { 0, 0, 0, 1, 'A' }));
             ByteBuf buf = (ByteBuf) ch.readInbound();
             assertEquals("A", buf.toString(CharsetUtil.ISO_8859_1));
-            buf.release();
         }
     }
 
@@ -64,7 +63,6 @@ public class LengthFieldBasedFrameDecoderTest {
             ch.writeInbound(Unpooled.wrappedBuffer(new byte[] { 0, 0, 0, 0, 0, 1, 'A' }));
             ByteBuf buf = (ByteBuf) ch.readInbound();
             assertEquals("A", buf.toString(CharsetUtil.ISO_8859_1));
-            buf.release();
         }
     }
 }

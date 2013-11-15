@@ -15,7 +15,7 @@
  */
 package io.netty.util.concurrent;
 
-import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * Default {@link SingleThreadEventExecutor} implementation which just execute all submitted task in a
@@ -24,8 +24,8 @@ import java.util.concurrent.Executor;
  */
 final class DefaultEventExecutor extends SingleThreadEventExecutor {
 
-    DefaultEventExecutor(DefaultEventExecutorGroup parent, Executor executor) {
-        super(parent, executor, true);
+    DefaultEventExecutor(DefaultEventExecutorGroup parent, ThreadFactory threadFactory) {
+        super(parent, threadFactory, true);
     }
 
     @Override

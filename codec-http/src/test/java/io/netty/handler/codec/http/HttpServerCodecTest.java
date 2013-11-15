@@ -57,7 +57,6 @@ public class HttpServerCodecTest {
             empty = false;
             totalBytesPolled += httpChunk.content().readableBytes();
             Assert.assertFalse(httpChunk instanceof LastHttpContent);
-            httpChunk.release();
         }
         Assert.assertFalse(empty);
         Assert.assertEquals(offeredContentLength, totalBytesPolled);

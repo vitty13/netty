@@ -39,8 +39,8 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
             return 0;
         }
     };
-    private static final Signal SUCCESS = Signal.valueOf(DefaultPromise.class, "SUCCESS");
-    private static final Signal UNCANCELLABLE = Signal.valueOf(DefaultPromise.class, "UNCANCELLABLE");
+    private static final Signal SUCCESS = new Signal(DefaultPromise.class.getName() + ".SUCCESS");
+    private static final Signal UNCANCELLABLE = new Signal(DefaultPromise.class.getName() + ".UNCANCELLABLE");
     private final EventExecutor executor;
 
     private volatile Object result;
@@ -535,47 +535,38 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
 
         EventExecutor executor = executor();
         if (executor.inEventLoop()) {
-            final Integer stackDepth = LISTENER_STACK_DEPTH.get();
-            if (stackDepth < MAX_LISTENER_STACK_DEPTH) {
-                LISTENER_STACK_DEPTH.set(stackDepth + 1);
-                try {
-                    if (listeners instanceof DefaultFutureListeners) {
-                        notifyListeners0(this, (DefaultFutureListeners) listeners);
-                    } else {
-                        @SuppressWarnings("unchecked")
-                        final GenericFutureListener<? extends Future<V>> l =
-                                (GenericFutureListener<? extends Future<V>>) listeners;
-                        notifyListener0(this, l);
-                    }
-                } finally {
-                    LISTENER_STACK_DEPTH.set(stackDepth);
-                }
-                return;
-            }
-        }
-
-        try {
             if (listeners instanceof DefaultFutureListeners) {
-                final DefaultFutureListeners dfl = (DefaultFutureListeners) listeners;
-                executor.execute(new Runnable() {
-                    @Override
-                    public void run() {
-                        notifyListeners0(DefaultPromise.this, dfl);
-                    }
-                });
+                notifyListeners0(this, (DefaultFutureListeners) listeners);
             } else {
                 @SuppressWarnings("unchecked")
                 final GenericFutureListener<? extends Future<V>> l =
                         (GenericFutureListener<? extends Future<V>>) listeners;
-                executor.execute(new Runnable() {
-                    @Override
-                    public void run() {
-                        notifyListener0(DefaultPromise.this, l);
-                    }
-                });
+                notifyListener0(this, l);
             }
-        } catch (Throwable t) {
-            logger.error("Failed to notify listener(s). Event loop shut down?", t);
+        } else {
+            try {
+                if (listeners instanceof DefaultFutureListeners) {
+                    final DefaultFutureListeners dfl = (DefaultFutureListeners) listeners;
+                    executor.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            notifyListeners0(DefaultPromise.this, dfl);
+                        }
+                    });
+                } else {
+                    @SuppressWarnings("unchecked")
+                    final GenericFutureListener<? extends Future<V>> l =
+                            (GenericFutureListener<? extends Future<V>>) listeners;
+                    executor.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            notifyListener0(DefaultPromise.this, l);
+                        }
+                    });
+                }
+            } catch (Throwable t) {
+                logger.error("Failed to notify listener(s). Event loop shut down?", t);
+            }
         }
     }
 
@@ -607,7 +598,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
             eventExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
-                    notifyListener0(future, l);
+                    notifyListener(eventExecutor, future, l);
                 }
             });
         } catch (Throwable t) {
@@ -616,7 +607,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
-    static void notifyListener0(Future future, GenericFutureListener l) {
+    private static void notifyListener0(Future future, GenericFutureListener l) {
         try {
             l.operationComplete(future);
         } catch (Throwable t) {

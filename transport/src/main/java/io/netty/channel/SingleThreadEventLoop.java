@@ -18,7 +18,6 @@ package io.netty.channel;
 import io.netty.util.concurrent.EventExecutorGroup;
 import io.netty.util.concurrent.SingleThreadEventExecutor;
 
-import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 
 /**
@@ -34,13 +33,6 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
         super(parent, threadFactory, addTaskWakesUp);
     }
 
-    /**
-     * @see {@link SingleThreadEventExecutor#SingleThreadEventExecutor(EventExecutorGroup, Executor, boolean)}
-     */
-    protected SingleThreadEventLoop(EventLoopGroup parent, Executor executor, boolean addTaskWakesUp) {
-        super(parent, executor, addTaskWakesUp);
-    }
-
     @Override
     public EventLoopGroup parent() {
         return (EventLoopGroup) super.parent();
@@ -49,5 +41,23 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
     @Override
     public EventLoop next() {
         return (EventLoop) super.next();
+    }
+
+    @Override
+    public ChannelFuture register(Channel channel) {
+        return register(channel, channel.newPromise());
+    }
+
+    @Override
+    public ChannelFuture register(final Channel channel, final ChannelPromise promise) {
+        if (channel == null) {
+            throw new NullPointerException("channel");
+        }
+        if (promise == null) {
+            throw new NullPointerException("promise");
+        }
+
+        channel.unsafe().register(this, promise);
+        return promise;
     }
 }

@@ -228,11 +228,7 @@ public final class PlatformDependent {
      */
     public static void freeDirectBuffer(ByteBuffer buffer) {
         if (buffer.isDirect()) {
-            if (hasUnsafe()) {
-                PlatformDependent0.freeDirectBufferUnsafe(buffer);
-            } else {
-                PlatformDependent0.freeDirectBuffer(buffer);
-            }
+            PlatformDependent0.freeDirectBuffer(buffer);
         }
     }
 

@@ -44,8 +44,8 @@ public abstract class AbstractOioChannel extends AbstractChannel {
     /**
      * @see AbstractChannel#AbstractChannel(Channel)
      */
-    protected AbstractOioChannel(Channel parent, EventLoop eventLoop) {
-        super(parent, eventLoop);
+    protected AbstractOioChannel(Channel parent) {
+        super(parent);
     }
 
     @Override
@@ -80,8 +80,8 @@ public abstract class AbstractOioChannel extends AbstractChannel {
                     newT.setStackTrace(t.getStackTrace());
                     t = newT;
                 }
-                promise.setFailure(t);
                 closeIfClosed();
+                promise.setFailure(t);
             }
         }
     }

@@ -55,7 +55,7 @@ final class DefaultChannelPipeline implements ChannelPipeline {
         }
     }
 
-    final AbstractChannel channel;
+    final Channel channel;
 
     final DefaultChannelHandlerContext head;
     final DefaultChannelHandlerContext tail;
@@ -66,7 +66,7 @@ final class DefaultChannelPipeline implements ChannelPipeline {
     final Map<EventExecutorGroup, EventExecutor> childExecutors =
             new IdentityHashMap<EventExecutorGroup, EventExecutor>();
 
-    public DefaultChannelPipeline(AbstractChannel channel) {
+    public DefaultChannelPipeline(Channel channel) {
         if (channel == null) {
             throw new NullPointerException("channel");
         }
@@ -511,7 +511,7 @@ final class DefaultChannelPipeline implements ChannelPipeline {
                 @Override
                 public void run() {
                     callHandlerRemoved0(ctx);
-                 }
+                }
             });
             return;
         }
@@ -700,7 +700,7 @@ final class DefaultChannelPipeline implements ChannelPipeline {
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder();
-        buf.append(StringUtil.simpleClassName(this));
+        buf.append(getClass().getSimpleName());
         buf.append('{');
         DefaultChannelHandlerContext ctx = head.next;
         for (;;) {
@@ -731,13 +731,15 @@ final class DefaultChannelPipeline implements ChannelPipeline {
         return this;
     }
 
-    /**
-     * Removes all handlers from the pipeline one by one from tail (exclusive) to head (inclusive) to trigger
-     * handlerRemoved().  Note that the tail handler is excluded because it's neither an outbound handler nor it
-     * does anything in handlerRemoved().
-     */
-    private void teardownAll() {
-        tail.prev.teardown();
+    @Override
+    public ChannelPipeline fireChannelUnregistered() {
+        head.fireChannelUnregistered();
+
+        // Free all buffers if channel is closed and unregistered.
+        if (!channel.isOpen()) {
+            head.freeInbound();
+        }
+        return this;
     }
 
     @Override
@@ -753,8 +755,11 @@ final class DefaultChannelPipeline implements ChannelPipeline {
 
     @Override
     public ChannelPipeline fireChannelInactive() {
+        // Some implementations such as EmbeddedChannel can trigger inboundBufferUpdated()
+        // after deactivation, so it's safe not to revert the firedChannelActive flag here.
+        // Also, all known transports never get re-activated.
+        //firedChannelActive = false;
         head.fireChannelInactive();
-        teardownAll();
         return this;
     }
 
@@ -817,6 +822,11 @@ final class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     @Override
+    public ChannelFuture deregister() {
+        return tail.deregister();
+    }
+
+    @Override
     public ChannelPipeline flush() {
         tail.flush();
         return this;
@@ -845,6 +855,11 @@ final class DefaultChannelPipeline implements ChannelPipeline {
     @Override
     public ChannelFuture close(ChannelPromise promise) {
         return tail.close(promise);
+    }
+
+    @Override
+    public ChannelFuture deregister(final ChannelPromise promise) {
+        return tail.deregister(promise);
     }
 
     @Override
@@ -911,6 +926,9 @@ final class DefaultChannelPipeline implements ChannelPipeline {
 
         @Override
         public void channelRegistered(ChannelHandlerContext ctx) throws Exception { }
+
+        @Override
+        public void channelUnregistered(ChannelHandlerContext ctx) throws Exception { }
 
         @Override
         public void channelActive(ChannelHandlerContext ctx) throws Exception { }
@@ -993,6 +1011,11 @@ final class DefaultChannelPipeline implements ChannelPipeline {
         @Override
         public void close(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception {
             unsafe.close(promise);
+        }
+
+        @Override
+        public void deregister(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception {
+            unsafe.deregister(promise);
         }
 
         @Override

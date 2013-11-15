@@ -119,6 +119,11 @@ public class CombinedChannelDuplexHandler<I extends ChannelInboundHandler, O ext
     }
 
     @Override
+    public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+        inboundHandler.channelUnregistered(ctx);
+    }
+
+    @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
         inboundHandler.channelActive(ctx);
     }
@@ -171,6 +176,11 @@ public class CombinedChannelDuplexHandler<I extends ChannelInboundHandler, O ext
     @Override
     public void close(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception {
         outboundHandler.close(ctx, promise);
+    }
+
+    @Override
+    public void deregister(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception {
+        outboundHandler.deregister(ctx, promise);
     }
 
     @Override

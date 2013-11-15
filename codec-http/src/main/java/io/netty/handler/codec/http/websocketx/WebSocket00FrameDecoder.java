@@ -22,8 +22,6 @@ import io.netty.handler.codec.TooLongFrameException;
 
 import java.util.List;
 
-import static io.netty.buffer.ByteBufUtil.readBytes;
-
 /**
  * Decodes {@link ByteBuf}s into {@link WebSocketFrame}s.
  * <p>
@@ -93,7 +91,8 @@ public class WebSocket00FrameDecoder extends ReplayingDecoder<Void> implements W
             receivedClosingHandshake = true;
             return new CloseWebSocketFrame();
         }
-        ByteBuf payload = readBytes(ctx.alloc(), buffer, (int) frameSize);
+        ByteBuf payload = ctx.alloc().buffer((int) frameSize);
+        buffer.readBytes(payload);
         return new BinaryWebSocketFrame(payload);
     }
 
@@ -117,12 +116,12 @@ public class WebSocket00FrameDecoder extends ReplayingDecoder<Void> implements W
             throw new TooLongFrameException();
         }
 
-        ByteBuf binaryData = readBytes(ctx.alloc(), buffer, frameSize);
+        ByteBuf binaryData = ctx.alloc().buffer(frameSize);
+        buffer.readBytes(binaryData);
         buffer.skipBytes(1);
 
         int ffDelimPos = binaryData.indexOf(binaryData.readerIndex(), binaryData.writerIndex(), (byte) 0xFF);
         if (ffDelimPos >= 0) {
-            binaryData.release();
             throw new IllegalArgumentException("a text frame should not contain 0xFF.");
         }
 

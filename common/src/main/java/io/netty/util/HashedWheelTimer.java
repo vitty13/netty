@@ -16,7 +16,6 @@
 package io.netty.util;
 
 import io.netty.util.internal.PlatformDependent;
-import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 
@@ -26,7 +25,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -97,9 +95,7 @@ public class HashedWheelTimer implements Timer {
     final Set<HashedWheelTimeout>[] wheel;
     final int mask;
     final ReadWriteLock lock = new ReentrantReadWriteLock();
-    final CountDownLatch startTimeInitialized = new CountDownLatch(1);
-    volatile long startTime;
-    volatile long tick;
+    volatile int wheelCursor;
 
     /**
      * Creates a new timer with the default thread factory
@@ -263,15 +259,6 @@ public class HashedWheelTimer implements Timer {
             default:
                 throw new Error("Invalid WorkerState");
         }
-
-        // Wait until the startTime is initialized by the worker.
-        while (startTime == 0) {
-            try {
-                startTimeInitialized.await();
-            } catch (InterruptedException ignore) {
-                // Ignore - it will be ready very soon.
-            }
-        }
     }
 
     @Override
@@ -286,11 +273,6 @@ public class HashedWheelTimer implements Timer {
         if (!workerState.compareAndSet(WORKER_STATE_STARTED, WORKER_STATE_SHUTDOWN)) {
             // workerState can be 0 or 2 at this moment - let it always be 2.
             workerState.set(WORKER_STATE_SHUTDOWN);
-
-            if (leak != null) {
-                leak.close();
-            }
-
             return Collections.emptySet();
         }
 
@@ -308,9 +290,7 @@ public class HashedWheelTimer implements Timer {
             Thread.currentThread().interrupt();
         }
 
-        if (leak != null) {
-            leak.close();
-        }
+        leak.close();
 
         Set<Timeout> unprocessedTimeouts = new HashSet<Timeout>();
         for (Set<HashedWheelTimeout> bucket: wheel) {
@@ -323,7 +303,7 @@ public class HashedWheelTimer implements Timer {
 
     @Override
     public Timeout newTimeout(TimerTask task, long delay, TimeUnit unit) {
-        start();
+        final long currentTime = System.nanoTime();
 
         if (task == null) {
             throw new NullPointerException("task");
@@ -332,50 +312,68 @@ public class HashedWheelTimer implements Timer {
             throw new NullPointerException("unit");
         }
 
-        long deadline = System.nanoTime() + unit.toNanos(delay) - startTime;
+        start();
 
-        // Add the timeout to the wheel.
-        HashedWheelTimeout timeout;
-        lock.readLock().lock();
-        try {
-            timeout = new HashedWheelTimeout(task, deadline);
-            if (workerState.get() == WORKER_STATE_SHUTDOWN) {
-                throw new IllegalStateException("Cannot enqueue after shutdown");
-            }
-            wheel[timeout.stopIndex].add(timeout);
-        } finally {
-            lock.readLock().unlock();
-        }
-
+        long delayInNanos = unit.toNanos(delay);
+        HashedWheelTimeout timeout = new HashedWheelTimeout(task, currentTime + delayInNanos);
+        scheduleTimeout(timeout, delayInNanos);
         return timeout;
     }
 
+    void scheduleTimeout(HashedWheelTimeout timeout, long delay) {
+        // Prepare the required parameters to schedule the timeout object.
+        long relativeIndex = (delay + tickDuration - 1) / tickDuration;
+        // if the previous line had an overflow going on, then we’ll just schedule this timeout
+        // one tick early; that shouldn’t matter since we’re talking 270 years here
+        if (relativeIndex < 0) {
+            relativeIndex = delay / tickDuration;
+        }
+        if (relativeIndex == 0) {
+            relativeIndex = 1;
+        }
+        if ((relativeIndex & mask) == 0) {
+            relativeIndex--;
+        }
+        final long remainingRounds = relativeIndex / wheel.length;
+
+        // Add the timeout to the wheel.
+        lock.readLock().lock();
+        try {
+            if (workerState.get() == WORKER_STATE_SHUTDOWN) {
+                throw new IllegalStateException("Cannot enqueue after shutdown");
+            }
+            final int stopIndex = (int) (wheelCursor + relativeIndex & mask);
+            timeout.stopIndex = stopIndex;
+            timeout.remainingRounds = remainingRounds;
+            wheel[stopIndex].add(timeout);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
     private final class Worker implements Runnable {
+
+        private long startTime;
+        private long tick;
 
         Worker() {
         }
 
         @Override
         public void run() {
-            // Initialize the startTime.
+            List<HashedWheelTimeout> expiredTimeouts =
+                    new ArrayList<HashedWheelTimeout>();
+
             startTime = System.nanoTime();
-            if (startTime == 0) {
-                // We use 0 as an indicator for the uninitialized value here, so make sure it's not 0 when initialized.
-                startTime = 1;
-            }
+            tick = 1;
 
-            // Notify the other threads waiting for the initialization at start().
-            startTimeInitialized.countDown();
-
-            List<HashedWheelTimeout> expiredTimeouts = new ArrayList<HashedWheelTimeout>();
-
-            do {
+            while (workerState.get() == WORKER_STATE_STARTED) {
                 final long deadline = waitForNextTick();
                 if (deadline > 0) {
                     fetchExpiredTimeouts(expiredTimeouts, deadline);
                     notifyExpiredTimeouts(expiredTimeouts);
                 }
-            } while (workerState.get() == WORKER_STATE_STARTED);
+            }
         }
 
         private void fetchExpiredTimeouts(
@@ -387,12 +385,9 @@ public class HashedWheelTimer implements Timer {
             // an exclusive lock.
             lock.writeLock().lock();
             try {
-                fetchExpiredTimeouts(expiredTimeouts, wheel[(int) (tick & mask)].iterator(), deadline);
+                int newWheelCursor = wheelCursor = wheelCursor + 1 & mask;
+                fetchExpiredTimeouts(expiredTimeouts, wheel[newWheelCursor].iterator(), deadline);
             } finally {
-                // Note that the tick is updated only while the writer lock is held,
-                // so that newTimeout() and consequently new HashedWheelTimeout() never see an old value
-                // while the reader lock is held.
-                tick ++;
                 lock.writeLock().unlock();
             }
         }
@@ -401,6 +396,7 @@ public class HashedWheelTimer implements Timer {
                 List<HashedWheelTimeout> expiredTimeouts,
                 Iterator<HashedWheelTimeout> i, long deadline) {
 
+            List<HashedWheelTimeout> slipped = null;
             while (i.hasNext()) {
                 HashedWheelTimeout timeout = i.next();
                 if (timeout.remainingRounds <= 0) {
@@ -408,12 +404,24 @@ public class HashedWheelTimer implements Timer {
                     if (timeout.deadline <= deadline) {
                         expiredTimeouts.add(timeout);
                     } else {
-                        // The timeout was placed into a wrong slot. This should never happen.
-                        throw new Error(String.format(
-                                "timeout.deadline (%d) > deadline (%d)", timeout.deadline, deadline));
+                        // Handle the case where the timeout is put into a wrong
+                        // place, usually one tick earlier.  For now, just add
+                        // it to a temporary list - we will reschedule it in a
+                        // separate loop.
+                        if (slipped == null) {
+                            slipped = new ArrayList<HashedWheelTimeout>();
+                        }
+                        slipped.add(timeout);
                     }
                 } else {
                     timeout.remainingRounds --;
+                }
+            }
+
+            // Reschedule the slipped timeouts.
+            if (slipped != null) {
+                for (HashedWheelTimeout timeout: slipped) {
+                    scheduleTimeout(timeout, timeout.deadline - deadline);
                 }
             }
         }
@@ -436,13 +444,14 @@ public class HashedWheelTimer implements Timer {
          * current time otherwise (with Long.MIN_VALUE changed by +1)
          */
         private long waitForNextTick() {
-            long deadline = tickDuration * (tick + 1);
+            long deadline = startTime + tickDuration * tick;
 
             for (;;) {
-                final long currentTime = System.nanoTime() - startTime;
+                final long currentTime = System.nanoTime();
                 long sleepTimeMs = (deadline - currentTime + 999999) / 1000000;
 
                 if (sleepTimeMs <= 0) {
+                    tick += 1;
                     if (currentTime == Long.MIN_VALUE) {
                         return -Long.MAX_VALUE;
                     } else {
@@ -478,18 +487,13 @@ public class HashedWheelTimer implements Timer {
 
         private final TimerTask task;
         final long deadline;
-        final int stopIndex;
+        volatile int stopIndex;
         volatile long remainingRounds;
         private final AtomicInteger state = new AtomicInteger(ST_INIT);
 
         HashedWheelTimeout(TimerTask task, long deadline) {
             this.task = task;
             this.deadline = deadline;
-
-            long calculated = deadline / tickDuration;
-            final long ticks = Math.max(calculated, tick); // Ensure we don't schedule for past.
-            stopIndex = (int) (ticks & mask);
-            remainingRounds = (calculated - tick) / wheel.length;
         }
 
         @Override
@@ -539,29 +543,26 @@ public class HashedWheelTimer implements Timer {
         @Override
         public String toString() {
             final long currentTime = System.nanoTime();
-            long remaining = deadline - currentTime + startTime;
+            long remaining = deadline - currentTime;
 
             StringBuilder buf = new StringBuilder(192);
-            buf.append(StringUtil.simpleClassName(this));
+            buf.append(getClass().getSimpleName());
             buf.append('(');
 
             buf.append("deadline: ");
             if (remaining > 0) {
                 buf.append(remaining);
-                buf.append(" ns later");
+                buf.append(" ms later, ");
             } else if (remaining < 0) {
                 buf.append(-remaining);
-                buf.append(" ns ago");
+                buf.append(" ms ago, ");
             } else {
-                buf.append("now");
+                buf.append("now, ");
             }
 
             if (isCancelled()) {
                 buf.append(", cancelled");
             }
-
-            buf.append(", task: ");
-            buf.append(task());
 
             return buf.append(')').toString();
         }

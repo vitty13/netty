@@ -28,7 +28,7 @@ public abstract class ChannelHandlerAdapter implements ChannelHandler {
      * Return {@code true} if the implementation is {@link Sharable} and so can be added
      * to different {@link ChannelPipeline}s.
      */
-    public boolean isSharable() {
+    final boolean isSharable() {
         return getClass().isAnnotationPresent(Sharable.class);
     }
 

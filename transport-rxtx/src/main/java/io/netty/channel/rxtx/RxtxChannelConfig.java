@@ -18,7 +18,6 @@ package io.netty.channel.rxtx;
 import gnu.io.SerialPort;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelConfig;
-import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
 
 /**
@@ -287,13 +286,4 @@ public interface RxtxChannelConfig extends ChannelConfig {
 
     @Override
     RxtxChannelConfig setAutoRead(boolean autoRead);
-
-    @Override
-    RxtxChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark);
-
-    @Override
-    RxtxChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
-
-    @Override
-    RxtxChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
 }

@@ -98,8 +98,7 @@ public abstract class MessageToMessageDecoder<I> extends ChannelInboundHandlerAd
         } catch (Exception e) {
             throw new DecoderException(e);
         } finally {
-            int size = out.size();
-            for (int i = 0; i < size; i ++) {
+            for (int i = 0; i < out.size(); i ++) {
                 ctx.fireChannelRead(out.get(i));
             }
             out.recycle();

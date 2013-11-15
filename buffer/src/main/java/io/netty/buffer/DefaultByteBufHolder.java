@@ -16,7 +16,6 @@
 package io.netty.buffer;
 
 import io.netty.util.IllegalReferenceCountException;
-import io.netty.util.internal.StringUtil;
 
 /**
  * Default implementation of a {@link ByteBufHolder} that holds it's data in a {@link ByteBuf}.
@@ -80,6 +79,6 @@ public class DefaultByteBufHolder implements ByteBufHolder {
 
     @Override
     public String toString() {
-        return StringUtil.simpleClassName(this) + '(' + content().toString() + ')';
+        return getClass().getSimpleName() + '(' + content().toString() + ')';
     }
 }

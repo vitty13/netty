@@ -18,7 +18,6 @@ package io.netty.handler.codec.spdy;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageEncoder;
 import io.netty.handler.codec.UnsupportedMessageTypeException;
-import io.netty.handler.codec.http.FullHttpMessage;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpHeaders;
@@ -130,18 +129,18 @@ public class SpdyHttpEncoder extends MessageToMessageEncoder<HttpObject> {
      *
      * @param version the protocol version
      */
-    public SpdyHttpEncoder(SpdyVersion version) {
-        if (version == null) {
-            throw new NullPointerException("version");
+    public SpdyHttpEncoder(int version) {
+        if (version < SpdyConstants.SPDY_MIN_VERSION || version > SpdyConstants.SPDY_MAX_VERSION) {
+            throw new IllegalArgumentException(
+                    "unsupported version: " + version);
         }
-        spdyVersion = version.getVersion();
+        spdyVersion = version;
     }
 
     @Override
     protected void encode(ChannelHandlerContext ctx, HttpObject msg, List<Object> out) throws Exception {
 
         boolean valid = false;
-        boolean last = false;
 
         if (msg instanceof HttpRequest) {
 
@@ -149,7 +148,6 @@ public class SpdyHttpEncoder extends MessageToMessageEncoder<HttpObject> {
             SpdySynStreamFrame spdySynStreamFrame = createSynStreamFrame(httpRequest);
             out.add(spdySynStreamFrame);
 
-            last = spdySynStreamFrame.isLast();
             valid = true;
         }
         if (msg instanceof HttpResponse) {
@@ -157,17 +155,15 @@ public class SpdyHttpEncoder extends MessageToMessageEncoder<HttpObject> {
             HttpResponse httpResponse = (HttpResponse) msg;
             if (httpResponse.headers().contains(SpdyHttpHeaders.Names.ASSOCIATED_TO_STREAM_ID)) {
                 SpdySynStreamFrame spdySynStreamFrame = createSynStreamFrame(httpResponse);
-                last = spdySynStreamFrame.isLast();
                 out.add(spdySynStreamFrame);
             } else {
                 SpdySynReplyFrame spdySynReplyFrame = createSynReplyFrame(httpResponse);
-                last = spdySynReplyFrame.isLast();
                 out.add(spdySynReplyFrame);
             }
 
             valid = true;
         }
-        if (msg instanceof HttpContent && !last) {
+        if (msg instanceof HttpContent) {
 
             HttpContent chunk = (HttpContent) msg;
 
@@ -176,7 +172,7 @@ public class SpdyHttpEncoder extends MessageToMessageEncoder<HttpObject> {
             spdyDataFrame.setLast(chunk instanceof LastHttpContent);
             if (chunk instanceof LastHttpContent) {
                 LastHttpContent trailer = (LastHttpContent) chunk;
-                HttpHeaders trailers = trailer.trailingHeaders();
+                List<Map.Entry<String, String>> trailers = trailer.trailingHeaders().entries();
                 if (trailers.isEmpty()) {
                     out.add(spdyDataFrame);
                 } else {
@@ -259,7 +255,6 @@ public class SpdyHttpEncoder extends MessageToMessageEncoder<HttpObject> {
             spdySynStreamFrame.headers().add(entry.getKey(), entry.getValue());
         }
         currentStreamId = spdySynStreamFrame.getStreamId();
-        spdySynStreamFrame.setLast(isLast(httpMessage));
 
         return spdySynStreamFrame;
     }
@@ -289,25 +284,8 @@ public class SpdyHttpEncoder extends MessageToMessageEncoder<HttpObject> {
         }
 
         currentStreamId = streamID;
-        spdySynReplyFrame.setLast(isLast(httpResponse));
+        spdySynReplyFrame.setLast(false);
 
         return spdySynReplyFrame;
-    }
-
-    /**
-     * Checks if the given HTTP message should be considered as a last SPDY frame.
-     *
-     * @param httpMessage check this HTTP message
-     * @return whether the given HTTP message should generate a <em>last</em> SPDY frame.
-     */
-    private static boolean isLast(HttpMessage httpMessage) {
-        if (httpMessage instanceof FullHttpMessage) {
-            FullHttpMessage fullMessage = (FullHttpMessage) httpMessage;
-            if (fullMessage.trailingHeaders().isEmpty() && !fullMessage.content().isReadable()) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

@@ -17,7 +17,6 @@ package io.netty.handler.codec.http.websocketx;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.DefaultByteBufHolder;
-import io.netty.util.internal.StringUtil;
 
 /**
  * Base class for web socket frames
@@ -68,7 +67,7 @@ public abstract class WebSocketFrame extends DefaultByteBufHolder {
 
     @Override
     public String toString() {
-        return StringUtil.simpleClassName(this) + "(data: " + content().toString() + ')';
+        return getClass().getSimpleName() + "(data: " + content().toString() + ')';
     }
 
     @Override

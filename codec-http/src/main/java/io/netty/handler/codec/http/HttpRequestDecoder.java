@@ -50,10 +50,6 @@ import io.netty.handler.codec.TooLongFrameException;
  *     {@link HttpContent}s in your handler, insert {@link HttpObjectAggregator}
  *     after this decoder in the {@link ChannelPipeline}.</td>
  * </tr>
- * <tr>
- * <td>{@code validateHeaders}</td>
- * <td>Specify if the headers should be validated during adding them for invalid chars.</td>
- * </tr>
  * </table>
  */
 public class HttpRequestDecoder extends HttpObjectDecoder {
@@ -71,21 +67,13 @@ public class HttpRequestDecoder extends HttpObjectDecoder {
      */
     public HttpRequestDecoder(
             int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
-        this(maxInitialLineLength, maxHeaderSize, maxChunkSize, true);
-    }
-
-    /**
-     * Creates a new instance with the specified parameters.
-     */
-    public HttpRequestDecoder(
-            int maxInitialLineLength, int maxHeaderSize, int maxChunkSize, boolean validateHeaders) {
-        super(maxInitialLineLength, maxHeaderSize, maxChunkSize, true, validateHeaders);
+        super(maxInitialLineLength, maxHeaderSize, maxChunkSize, true);
     }
 
     @Override
-    protected HttpMessage createMessage(String first, String second, String third) throws Exception {
+    protected HttpMessage createMessage(String[] initialLine) throws Exception {
         return new DefaultHttpRequest(
-                HttpVersion.valueOf(third), HttpMethod.valueOf(first), second, validateHeaders);
+                HttpVersion.valueOf(initialLine[2]), HttpMethod.valueOf(initialLine[0]), initialLine[1]);
     }
 
     @Override

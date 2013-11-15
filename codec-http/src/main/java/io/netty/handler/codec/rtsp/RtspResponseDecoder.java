@@ -70,10 +70,10 @@ public class RtspResponseDecoder extends RtspObjectDecoder {
     }
 
     @Override
-    protected HttpMessage createMessage(String first, String second, String third) throws Exception {
+    protected HttpMessage createMessage(String[] initialLine) throws Exception {
         return new DefaultHttpResponse(
-                RtspVersions.valueOf(first),
-                new HttpResponseStatus(Integer.valueOf(second), third));
+                RtspVersions.valueOf(initialLine[0]),
+                new HttpResponseStatus(Integer.valueOf(initialLine[1]), initialLine[2]));
     }
 
     @Override

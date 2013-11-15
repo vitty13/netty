@@ -32,6 +32,8 @@ import java.net.SocketAddress;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -47,6 +49,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
     protected final int readInterestOp;
     private volatile SelectionKey selectionKey;
     private volatile boolean inputShutdown;
+    final Queue<NioTask<SelectableChannel>> writableTasks = new ConcurrentLinkedQueue<NioTask<SelectableChannel>>();
 
     /**
      * The future of the current connection attempt.  If not null, subsequent
@@ -63,8 +66,8 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * @param ch                the underlying {@link SelectableChannel} on which it operates
      * @param readInterestOp    the ops to set to receive data from the {@link SelectableChannel}
      */
-    protected AbstractNioChannel(Channel parent, EventLoop eventLoop, SelectableChannel ch, int readInterestOp) {
-        super(parent, eventLoop);
+    protected AbstractNioChannel(Channel parent, SelectableChannel ch, int readInterestOp) {
+        super(parent);
         this.ch = ch;
         this.readInterestOp = readInterestOp;
         try {
@@ -210,8 +213,8 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                     newT.setStackTrace(t.getStackTrace());
                     t = newT;
                 }
-                promise.tryFailure(t);
                 closeIfClosed();
+                promise.tryFailure(t);
             }
         }
 
@@ -240,11 +243,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                 connectPromise.setFailure(t);
                 closeIfClosed();
             } finally {
-                // Check for null as the connectTimeoutFuture is only created if a connectTimeoutMillis > 0 is used
-                // See https://github.com/netty/netty/issues/1770
-                if (connectTimeoutFuture != null) {
-                    connectTimeoutFuture.cancel(false);
-                }
+                connectTimeoutFuture.cancel(false);
                 connectPromise = null;
             }
         }
@@ -265,11 +264,6 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             // directly call super.flush0() to force a flush now
             super.flush0();
         }
-
-        private boolean isFlushPending() {
-            SelectionKey selectionKey = selectionKey();
-            return selectionKey.isValid() && (selectionKey.interestOps() & SelectionKey.OP_WRITE) != 0;
-        }
     }
 
     @Override
@@ -277,16 +271,21 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         return loop instanceof NioEventLoop;
     }
 
+    private boolean isFlushPending() {
+        SelectionKey selectionKey = this.selectionKey;
+        return selectionKey.isValid() && (selectionKey.interestOps() & SelectionKey.OP_WRITE) != 0;
+    }
+
     @Override
-    protected void doRegister() throws Exception {
+    protected Runnable doRegister() throws Exception {
         boolean selected = false;
         for (;;) {
             try {
                 selectionKey = javaChannel().register(eventLoop().selector, 0, this);
-                return;
+                return null;
             } catch (CancelledKeyException e) {
                 if (!selected) {
-                    // Force the Selector to select now as the "canceled" SelectionKey may still be
+                    // Force the Selector to select now  as the "canceled" SelectionKey may still be
                     // cached and not removed because no Select.select(..) operation was called yet.
                     eventLoop().selectNow();
                     selected = true;
@@ -300,8 +299,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
     }
 
     @Override
-    protected void doDeregister() throws Exception {
+    protected Runnable doDeregister() throws Exception {
         eventLoop().cancel(selectionKey());
+        return null;
     }
 
     @Override

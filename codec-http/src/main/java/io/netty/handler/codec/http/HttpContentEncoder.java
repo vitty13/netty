@@ -109,6 +109,9 @@ public abstract class HttpContentEncoder extends MessageToMessageCodec<HttpReque
                 if (isFull) {
                     // Pass through the full response with empty content and continue waiting for the the next resp.
                     if (!((ByteBufHolder) res).content().isReadable()) {
+                        // Set the content length to 0.
+                        res.headers().remove(Names.TRANSFER_ENCODING);
+                        res.headers().set(Names.CONTENT_LENGTH, "0");
                         out.add(ReferenceCountUtil.retain(res));
                         break;
                     }
@@ -120,6 +123,9 @@ public abstract class HttpContentEncoder extends MessageToMessageCodec<HttpReque
                 // If unable to encode, pass through.
                 if (result == null) {
                     if (isFull) {
+                        // Set the content length.
+                        res.headers().remove(Names.TRANSFER_ENCODING);
+                        res.headers().set(Names.CONTENT_LENGTH, ((ByteBufHolder) res).content().readableBytes());
                         out.add(ReferenceCountUtil.retain(res));
                     } else {
                         out.add(res);
@@ -154,7 +160,8 @@ public abstract class HttpContentEncoder extends MessageToMessageCodec<HttpReque
             }
             case AWAIT_CONTENT: {
                 ensureContent(msg);
-                if (encodeContent((HttpContent) msg, out)) {
+                encodeContent((HttpContent) msg, out);
+                if (msg  instanceof LastHttpContent) {
                     state = State.AWAIT_HEADERS;
                 }
                 break;
@@ -187,26 +194,18 @@ public abstract class HttpContentEncoder extends MessageToMessageCodec<HttpReque
         }
     }
 
-    private boolean encodeContent(HttpContent c, List<Object> out) {
+    private void encodeContent(HttpContent c, List<Object> out) {
         ByteBuf content = c.content();
 
         encode(content, out);
 
         if (c instanceof LastHttpContent) {
             finishEncode(out);
-            LastHttpContent last = (LastHttpContent) c;
 
             // Generate an additional chunk if the decoder produced
             // the last product on closure,
-            HttpHeaders headers = last.trailingHeaders();
-            if (headers.isEmpty()) {
-                out.add(LastHttpContent.EMPTY_LAST_CONTENT);
-            } else {
-                out.add(new ComposedLastHttpContent(headers));
-            }
-            return true;
+            out.add(LastHttpContent.EMPTY_LAST_CONTENT);
         }
-        return false;
     }
 
     /**

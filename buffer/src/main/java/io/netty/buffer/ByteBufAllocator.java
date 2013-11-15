@@ -118,9 +118,4 @@ public interface ByteBufAllocator {
      * Allocate a direct {@link CompositeByteBuf} with the given maximum number of components that can be stored in it.
      */
     CompositeByteBuf compositeDirectBuffer(int maxNumComponents);
-
-    /**
-     * Returns {@code true} if direct {@link ByteBuf}'s are pooled
-     */
-    boolean isDirectBufferPooled();
 }

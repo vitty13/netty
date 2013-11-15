@@ -30,14 +30,18 @@ class SpdyHeaderBlockZlibEncoder extends SpdyHeaderBlockRawEncoder {
 
     private boolean finished;
 
-    public SpdyHeaderBlockZlibEncoder(SpdyVersion version, int compressionLevel) {
+    public SpdyHeaderBlockZlibEncoder(int version, int compressionLevel) {
         super(version);
         if (compressionLevel < 0 || compressionLevel > 9) {
             throw new IllegalArgumentException(
                     "compressionLevel: " + compressionLevel + " (expected: 0-9)");
         }
         compressor = new Deflater(compressionLevel);
-        compressor.setDictionary(SPDY_DICT);
+        if (version < 3) {
+            compressor.setDictionary(SPDY2_DICT);
+        } else {
+            compressor.setDictionary(SPDY_DICT);
+        }
     }
 
     private void setInput(ByteBuf decompressed) {
@@ -55,7 +59,7 @@ class SpdyHeaderBlockZlibEncoder extends SpdyHeaderBlockRawEncoder {
     }
 
     @Override
-    public ByteBuf encode(ChannelHandlerContext ctx, SpdyHeadersFrame frame) throws Exception {
+    public synchronized ByteBuf encode(ChannelHandlerContext ctx, SpdyHeadersFrame frame) throws Exception {
         if (frame == null) {
             throw new IllegalArgumentException("frame");
         }

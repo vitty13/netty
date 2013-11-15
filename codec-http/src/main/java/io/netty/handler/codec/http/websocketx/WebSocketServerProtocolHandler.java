@@ -61,7 +61,7 @@ public class WebSocketServerProtocolHandler extends WebSocketProtocolHandler {
     }
 
     private static final AttributeKey<WebSocketServerHandshaker> HANDSHAKER_ATTR_KEY =
-            AttributeKey.valueOf(WebSocketServerHandshaker.class, "HANDSHAKER");
+            new AttributeKey<WebSocketServerHandshaker>(WebSocketServerHandshaker.class.getName());
 
     private final String websocketPath;
     private final String subprotocols;

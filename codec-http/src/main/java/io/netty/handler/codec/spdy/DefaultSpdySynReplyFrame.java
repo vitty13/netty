@@ -53,7 +53,7 @@ public class DefaultSpdySynReplyFrame extends DefaultSpdyHeadersFrame
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder();
-        buf.append(StringUtil.simpleClassName(this));
+        buf.append(getClass().getSimpleName());
         buf.append("(last: ");
         buf.append(isLast());
         buf.append(')');

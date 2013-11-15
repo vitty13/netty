@@ -24,9 +24,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelMetadata;
-import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPromise;
-import io.netty.channel.EventLoop;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.channel.oio.AbstractOioMessageChannel;
 import io.netty.channel.sctp.DefaultSctpChannelConfig;
@@ -88,8 +86,8 @@ public class OioSctpChannel extends AbstractOioMessageChannel
     /**
      * Create a new instance with an new {@link SctpChannel}.
      */
-    public OioSctpChannel(EventLoop eventLoop) {
-        this(eventLoop, openChannel());
+    public OioSctpChannel() {
+        this(openChannel());
     }
 
     /**
@@ -97,8 +95,8 @@ public class OioSctpChannel extends AbstractOioMessageChannel
      *
      * @param ch    the {@link SctpChannel} which is used by this instance
      */
-    public OioSctpChannel(EventLoop eventLoop, SctpChannel ch) {
-        this(null, eventLoop, ch);
+    public OioSctpChannel(SctpChannel ch) {
+        this(null, ch);
     }
 
     /**
@@ -108,8 +106,8 @@ public class OioSctpChannel extends AbstractOioMessageChannel
      *                  {@link} has no parent as it was created by your self.
      * @param ch        the {@link SctpChannel} which is used by this instance
      */
-    public OioSctpChannel(Channel parent, EventLoop eventLoop, SctpChannel ch) {
-        super(parent, eventLoop);
+    public OioSctpChannel(Channel parent, SctpChannel ch) {
+        super(parent);
         this.ch = ch;
         boolean success = false;
         try {
@@ -221,57 +219,59 @@ public class OioSctpChannel extends AbstractOioMessageChannel
     }
 
     @Override
-    protected void doWrite(ChannelOutboundBuffer in) throws Exception {
+    protected int doWrite(Object[] msgs, int length, int startIndex) throws Exception {
         if (!writeSelector.isOpen()) {
-            return;
+            return 0;
         }
-        final int size = in.size();
         final int selectedKeys = writeSelector.select(SO_TIMEOUT);
         if (selectedKeys > 0) {
             final Set<SelectionKey> writableKeys = writeSelector.selectedKeys();
             if (writableKeys.isEmpty()) {
-                return;
+                return 0;
             }
             Iterator<SelectionKey> writableKeysIt = writableKeys.iterator();
             int written = 0;
             for (;;) {
-                if (written == size) {
+                if (written == length) {
                     // all written
-                    return;
+                    return written;
                 }
                 writableKeysIt.next();
                 writableKeysIt.remove();
 
-                SctpMessage packet = (SctpMessage) in.current();
+                SctpMessage packet = (SctpMessage) msgs[startIndex ++];
                 if (packet == null) {
-                    return;
+                    return written;
                 }
+                try {
+                    ByteBuf data = packet.content();
+                    int dataLen = data.readableBytes();
+                    ByteBuffer nioData;
 
-                ByteBuf data = packet.content();
-                int dataLen = data.readableBytes();
-                ByteBuffer nioData;
+                    if (data.nioBufferCount() != -1) {
+                        nioData = data.nioBuffer();
+                    } else {
+                        nioData = ByteBuffer.allocate(dataLen);
+                        data.getBytes(data.readerIndex(), nioData);
+                        nioData.flip();
+                    }
 
-                if (data.nioBufferCount() != -1) {
-                    nioData = data.nioBuffer();
-                } else {
-                    nioData = ByteBuffer.allocate(dataLen);
-                    data.getBytes(data.readerIndex(), nioData);
-                    nioData.flip();
+                    final MessageInfo mi = MessageInfo.createOutgoing(association(), null, packet.streamIdentifier());
+                    mi.payloadProtocolID(packet.protocolIdentifier());
+                    mi.streamNumber(packet.streamIdentifier());
+
+                    ch.send(nioData, mi);
+                    written ++;
+                } finally {
+                    packet.release();
                 }
-
-                final MessageInfo mi = MessageInfo.createOutgoing(association(), null, packet.streamIdentifier());
-                mi.payloadProtocolID(packet.protocolIdentifier());
-                mi.streamNumber(packet.streamIdentifier());
-
-                ch.send(nioData, mi);
-                written ++;
-                in.remove();
-
                 if (!writableKeysIt.hasNext()) {
-                    return;
+                    return written;
                 }
             }
         }
+
+        return 0;
     }
 
     @Override

@@ -17,7 +17,6 @@ package io.netty.channel.socket;
 
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelConfig;
-import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
 
 import java.net.ServerSocket;
@@ -101,7 +100,4 @@ public interface ServerSocketChannelConfig extends ChannelConfig {
 
     @Override
     ServerSocketChannelConfig setAutoRead(boolean autoRead);
-
-    @Override
-    ServerSocketChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
 }
